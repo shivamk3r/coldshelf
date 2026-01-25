@@ -1,1 +1,174 @@
-# mac-disk-cleaner
+# Mac Disk Space Manager
+
+A Python CLI tool to help manage disk space on macOS by analyzing disk usage, identifying removable cache files, and finding old files that can be moved to an external SSD.
+
+## Features
+
+- **Disk Usage Analysis**: Scan and visualize disk usage with detailed breakdowns
+- **Cache File Detection**: Automatically identify cache and temporary files that can be safely removed
+- **Old File Archiving**: Find files not accessed in 6+ months and move them to external SSD
+- **Safety First**: Requires explicit confirmation before any destructive actions
+- **Beautiful CLI**: Rich terminal UI with progress bars, tables, and color-coded output
+- **Auto-Detection**: Automatically detects external SSDs for archiving
+- **Action Logging**: All actions are logged for review and audit
+
+## Installation
+
+1. Clone this repository:
+```bash
+git clone <repository-url>
+cd mac-disk-cleaner
+```
+
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+3. Make the script executable (optional):
+```bash
+chmod +x main.py
+```
+
+## Usage
+
+### Analyze Disk Usage
+
+Scan and analyze disk usage without making any changes:
+
+```bash
+python main.py analyze
+```
+
+Scan a specific directory:
+
+```bash
+python main.py analyze --path /path/to/directory
+```
+
+### Clean Cache Files
+
+Identify and remove cache files (with confirmation):
+
+```bash
+python main.py clean
+```
+
+With custom age threshold:
+
+```bash
+python main.py clean --age-months 3
+```
+
+### Archive Old Files to External SSD
+
+Move old files (not accessed in 6+ months) to external SSD:
+
+```bash
+python main.py archive
+```
+
+With custom options:
+
+```bash
+python main.py archive --age-months 12 --ssd-path /Volumes/MySSD
+```
+
+### Full Report
+
+Generate a comprehensive report showing all insights:
+
+```bash
+python main.py full-report
+```
+
+### Dry Run Mode
+
+Preview what would be done without making changes:
+
+```bash
+python main.py clean --dry-run
+python main.py archive --dry-run
+```
+
+## Commands
+
+- `analyze` - Analyze disk usage and show insights
+- `clean` - Identify and remove cache files
+- `archive` - Move old files to external SSD
+- `full-report` - Generate comprehensive analysis report
+
+## Options
+
+- `--path PATH` - Directory to scan (default: home directory)
+- `--ssd-path PATH` - Path to external SSD (default: auto-detect)
+- `--age-months N` - Age threshold in months (default: 6)
+- `--dry-run` - Show what would be done without making changes
+
+## Safety Features
+
+1. **Confirmation Prompts**: All destructive actions require explicit user confirmation
+2. **Preview Mode**: See what will be affected before confirming
+3. **Action Logging**: All actions are logged to `~/.mac-disk-cleaner-actions.log`
+4. **Dry Run**: Test operations without making changes
+5. **Error Handling**: Graceful handling of permission errors and inaccessible files
+
+## How It Works
+
+### Cache File Detection
+
+The tool identifies cache files by:
+- Common cache directory patterns (Library/Caches, .cache, tmp, etc.)
+- Cache file extensions (.cache, .tmp, .temp, .log, etc.)
+- Filenames containing cache-related keywords
+
+### Old File Detection
+
+Files are considered "old" if they:
+- Haven't been accessed in the specified time period (default: 6 months)
+- Are larger than 1 MB (to avoid moving many small files)
+
+### Archiving Process
+
+When archiving files to external SSD:
+1. Files are moved to the external drive preserving directory structure
+2. Symlinks are created in the original location pointing to the archived files
+3. This allows applications to continue working while freeing up space
+
+## Configuration
+
+Default settings can be modified in `config.py`:
+- `DEFAULT_AGE_THRESHOLD_MONTHS`: Default age for old files (6 months)
+- `CACHE_DIRECTORY_PATTERNS`: Patterns for cache directories
+- `CACHE_FILE_EXTENSIONS`: File extensions considered cache files
+- `EXCLUDED_DIRECTORIES`: Directories excluded from scanning
+
+## Requirements
+
+- Python 3.7+
+- macOS (uses macOS-specific tools like `diskutil`)
+- External SSD (for archiving feature)
+
+## Dependencies
+
+- `click`: CLI framework
+- `rich`: Beautiful terminal UI
+
+## Action Log
+
+All actions (deletions, moves) are logged to `~/.mac-disk-cleaner-actions.log` with timestamps, file paths, sizes, and success/failure status.
+
+## Limitations
+
+- Requires appropriate file permissions
+- Some system files may be inaccessible
+- External SSD must be mounted and writable
+- Large scans may take time depending on disk size
+
+## License
+
+MIT License
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
