@@ -73,7 +73,7 @@ class ActionExecutor:
         total_size = 0
         
         for file_info in files:
-            file_path = file_info['path']
+            file_path = Path(file_info['path'])
             file_size = file_info['size']
             
             if self.dry_run:
@@ -125,7 +125,7 @@ class ActionExecutor:
             target_base.mkdir(parents=True, exist_ok=True)
         
         for file_info in files:
-            source_path = file_info['path']
+            source_path = Path(file_info['path'])
             file_size = file_info['size']
             target_path = preserve_structure_move(source_path, target_base, source_base)
             

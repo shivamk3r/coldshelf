@@ -1,9 +1,10 @@
 """File analysis and categorization."""
 
-from pathlib import Path
+import os
+import re
+import fnmatch
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Callable
-import fnmatch
 
 from config import (
     DEFAULT_AGE_THRESHOLD,
@@ -12,6 +13,18 @@ from config import (
     MIN_FILE_SIZE_TO_MOVE,
 )
 from utils import format_size
+
+# Pre-compile cache directory regex patterns (avoids per-file fnmatch overhead)
+_CACHE_DIR_COMPILED = [re.compile(fnmatch.translate(p)) for p in CACHE_DIRECTORY_PATTERNS]
+
+# Quick substring markers for early rejection before expensive regex
+_CACHE_DIR_MARKERS = ('Library/Caches', '.cache/', '/tmp/', 'var/tmp/', 'var/folders/', '/Cache/')
+
+# Frozen set for O(1) extension lookup instead of O(n) list scan
+_CACHE_EXT_SET = frozenset(e.lower() for e in CACHE_FILE_EXTENSIONS)
+
+# Cache name substrings
+_CACHE_NAME_SUBS = ('cache', 'tmp', 'temp', '.log')
 
 
 class FileAnalyzer:
@@ -25,38 +38,40 @@ class FileAnalyzer:
         """
         self.age_threshold = age_threshold or DEFAULT_AGE_THRESHOLD
         self.now = datetime.now()
+        self._now_ts = self.now.timestamp()
     
     def find_cache_files(self, files: List[Dict], progress_callback: Optional[Callable] = None) -> List[Dict]:
         """Identify cache files that can be safely removed."""
         cache_files = []
         total = len(files)
+        cache_exts = _CACHE_EXT_SET
+        markers = _CACHE_DIR_MARKERS
+        compiled = _CACHE_DIR_COMPILED
+        name_subs = _CACHE_NAME_SUBS
         
         for i, file_info in enumerate(files, 1):
-            if progress_callback and i % 100 == 0:
+            if progress_callback and i % 5000 == 0:
                 progress_callback(i)
-            file_path = file_info['path']
-            path_str = str(file_path)
             
-            # Check if in cache directory
+            path_str = file_info['path']
+            
+            # Quick marker check before expensive regex for cache dirs
             is_cache_dir = False
-            for pattern in CACHE_DIRECTORY_PATTERNS:
-                if fnmatch.fnmatch(path_str, pattern):
-                    is_cache_dir = True
-                    break
+            if any(m in path_str for m in markers):
+                is_cache_dir = any(p.match(path_str) for p in compiled)
             
-            # Check if has cache extension
-            is_cache_ext = file_path.suffix.lower() in CACHE_FILE_EXTENSIONS
+            # O(1) extension check with frozenset
+            _, ext = os.path.splitext(path_str)
+            is_cache_ext = ext.lower() in cache_exts
             
-            # Check common cache patterns in filename
-            is_cache_name = any(
-                pattern in file_path.name.lower()
-                for pattern in ['cache', 'tmp', 'temp', '.log']
-            )
+            # Filename pattern check using os.path (avoids Path object creation)
+            basename_lower = os.path.basename(path_str).lower()
+            is_cache_name = any(s in basename_lower for s in name_subs)
             
             if is_cache_dir or is_cache_ext or is_cache_name:
                 cache_files.append({
                     **file_info,
-                    'reason': self._get_cache_reason(file_path, is_cache_dir, is_cache_ext, is_cache_name)
+                    'reason': self._get_cache_reason(is_cache_dir, is_cache_ext, is_cache_name)
                 })
         
         if progress_callback and total > 0:
@@ -64,7 +79,7 @@ class FileAnalyzer:
         
         return cache_files
     
-    def _get_cache_reason(self, path: Path, is_dir: bool, is_ext: bool, is_name: bool) -> str:
+    def _get_cache_reason(self, is_dir: bool, is_ext: bool, is_name: bool) -> str:
         """Get reason why file is considered cache."""
         reasons = []
         if is_dir:
@@ -78,31 +93,31 @@ class FileAnalyzer:
     def find_old_files(self, files: List[Dict], min_size: int = MIN_FILE_SIZE_TO_MOVE, progress_callback: Optional[Callable] = None) -> List[Dict]:
         """Find files that haven't been accessed in the threshold period."""
         old_files = []
-        cutoff_date = self.now - self.age_threshold
+        cutoff_ts = (self.now - self.age_threshold).timestamp()
+        now_ts = self._now_ts
         total = len(files)
         
         for i, file_info in enumerate(files, 1):
-            if progress_callback and i % 100 == 0:
+            if progress_callback and i % 5000 == 0:
                 progress_callback(i)
-            # Skip if too small
             if file_info['size'] < min_size:
                 continue
             
-            # Check last access time
-            if file_info['accessed'] < cutoff_date:
-                days_old = (self.now - file_info['accessed']).days
+            # Compare raw float timestamps (avoids datetime creation per file)
+            atime = file_info['atime']
+            if atime < cutoff_ts:
+                days_old = int((now_ts - atime) / 86400)
                 old_files.append({
                     **file_info,
                     'days_old': days_old,
-                    'age_category': self._categorize_age(days_old)
+                    'age_category': self._categorize_age(days_old),
+                    'accessed': datetime.fromtimestamp(atime),
                 })
         
         if progress_callback and total > 0:
             progress_callback(total)
         
-        # Sort by size (largest first)
         old_files.sort(key=lambda x: x['size'], reverse=True)
-        
         return old_files
     
     def _categorize_age(self, days: int) -> str:
@@ -116,7 +131,7 @@ class FileAnalyzer:
         else:
             return "very old"
     
-    def analyze_disk_usage(self, files: List[Dict], directories: Dict[Path, int]) -> Dict:
+    def analyze_disk_usage(self, files: List[Dict], directories: Dict) -> Dict:
         """Analyze overall disk usage and provide insights."""
         total_size = sum(f['size'] for f in files)
         file_count = len(files)
@@ -124,11 +139,14 @@ class FileAnalyzer:
         # Group by extension
         by_extension = {}
         for file_info in files:
-            ext = file_info['path'].suffix.lower() or 'no extension'
-            if ext not in by_extension:
-                by_extension[ext] = {'count': 0, 'size': 0}
-            by_extension[ext]['count'] += 1
-            by_extension[ext]['size'] += file_info['size']
+            _, ext = os.path.splitext(file_info['path'])
+            ext = ext.lower() or 'no extension'
+            bucket = by_extension.get(ext)
+            if bucket is None:
+                bucket = {'count': 0, 'size': 0}
+                by_extension[ext] = bucket
+            bucket['count'] += 1
+            bucket['size'] += file_info['size']
         
         # Sort extensions by size
         top_extensions = sorted(

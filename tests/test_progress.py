@@ -21,17 +21,17 @@ def _make_test_files(tmp_path, count=200, prefix="file", ext=".txt", content="co
 def _make_file_info_list(tmp_path, count=200, ext=".cache", age_days=400, size=100):
     """Create a list of file info dicts for testing analyzer methods."""
     now = datetime.now()
+    ts = (now - timedelta(days=age_days)).timestamp()
     files = []
     for i in range(count):
         p = tmp_path / f"file_{i}{ext}"
         p.write_text("x" * size)
         files.append({
-            "path": p,
+            "path": str(p),
             "size": size,
-            "accessed": now - timedelta(days=age_days),
-            "modified": now - timedelta(days=age_days),
-            "created": now - timedelta(days=age_days),
-            "is_dir": False,
+            "atime": ts,
+            "mtime": ts,
+            "ctime": ts,
         })
     return files
 

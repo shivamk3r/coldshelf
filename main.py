@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Main CLI entry point for Mac Disk Cleaner."""
 
+import os
 import sys
 from pathlib import Path
 from datetime import timedelta
@@ -321,7 +322,7 @@ def archive(ctx, path: Optional[Path], target_path: Optional[Path], ssd_path: Op
     
     files = scan_results['files']
     # Skip symlinks (e.g. left behind from previous archive runs)
-    files = [f for f in files if not f['path'].is_symlink()]
+    files = [f for f in files if not os.path.islink(f['path'])]
     old_files = show_old_files_analysis(analyzer, files, age_months)
     
     if not old_files:

@@ -1,33 +1,26 @@
 """Disk scanning functionality."""
 
 import os
+import heapq
 from pathlib import Path
-from datetime import datetime
-from typing import List, Dict, Optional, Callable
 from collections import defaultdict
+from typing import List, Dict, Optional, Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import EXCLUDED_DIRECTORIES, USER_EXCLUDED_DIRECTORIES
-from utils import get_file_info, is_excluded_path, format_size
 
 
 class DiskScanner:
     """Scans disk and collects file information."""
     
     def __init__(self, root_path: Optional[Path] = None, progress_callback: Optional[Callable] = None, exclude_paths: Optional[List[Path]] = None):
-        """Initialize scanner.
-        
-        Args:
-            root_path: Root directory to scan (default: user home)
-            progress_callback: Optional callback for progress updates
-            exclude_paths: Additional directory paths to exclude from scanning
-        """
         self.root_path = root_path or Path.home()
         self.progress_callback = progress_callback
-        self.exclude_paths = [Path(p).resolve() for p in (exclude_paths or [])]
+        self._exclude_paths_raw = exclude_paths or []
         self.files: List[Dict] = []
-        self.directories: Dict[Path, int] = defaultdict(int)
+        self.directories: Dict[str, int] = defaultdict(int)
         self.total_scanned = 0
-        self.errors = []
+        self.errors: List[str] = []
         
     def scan(self) -> Dict:
         """Scan the filesystem and return file information."""
@@ -36,11 +29,66 @@ class DiskScanner:
         self.total_scanned = 0
         self.errors = []
         
-        all_excluded = EXCLUDED_DIRECTORIES.copy()
+        # Pre-compute all excluded path prefixes once (avoids per-file Path.home() calls)
+        excluded = set()
+        home_str = str(Path.home())
+        for d in EXCLUDED_DIRECTORIES:
+            excluded.add(d)
+            if not os.path.isabs(d):
+                excluded.add(os.path.join(home_str, d))
         if self.root_path == Path.home():
-            all_excluded.extend([str(Path.home() / d) for d in USER_EXCLUDED_DIRECTORIES])
+            for d in USER_EXCLUDED_DIRECTORIES:
+                excluded.add(os.path.join(home_str, d))
+        for ep in self._exclude_paths_raw:
+            excluded.add(str(Path(ep).resolve()))
+        excluded_prefixes = tuple(sorted(excluded))
         
-        self._scan_directory(self.root_path, all_excluded)
+        root_str = str(self.root_path)
+        
+        # Collect top-level directories for parallel scanning
+        top_dirs = []
+        try:
+            with os.scandir(root_str) as it:
+                for entry in it:
+                    try:
+                        if entry.is_file():
+                            st = entry.stat()
+                            self.files.append({
+                                'path': entry.path,
+                                'size': st.st_size,
+                                'atime': st.st_atime,
+                                'mtime': st.st_mtime,
+                                'ctime': st.st_ctime,
+                            })
+                            self.directories[root_str] += st.st_size
+                            self.total_scanned += 1
+                            if self.progress_callback and self.total_scanned % 100 == 0:
+                                self.progress_callback(self.total_scanned)
+                        elif entry.is_dir(follow_symlinks=False):
+                            if not entry.path.startswith(excluded_prefixes):
+                                top_dirs.append(entry.path)
+                    except (PermissionError, OSError):
+                        continue
+        except (PermissionError, OSError) as e:
+            self.errors.append(f"Cannot access {root_str}: {e}")
+        
+        # Scan subdirectories in parallel threads (os.stat releases GIL)
+        if top_dirs:
+            n_workers = min(len(top_dirs), os.cpu_count() or 4)
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                futures = {
+                    pool.submit(_scan_subtree, d, excluded_prefixes): d
+                    for d in top_dirs
+                }
+                for future in as_completed(futures):
+                    sub_files, sub_dirs, sub_errors = future.result()
+                    self.files.extend(sub_files)
+                    for k, v in sub_dirs.items():
+                        self.directories[k] += v
+                    self.errors.extend(sub_errors)
+                    self.total_scanned += len(sub_files)
+                    if self.progress_callback:
+                        self.progress_callback(self.total_scanned)
         
         return {
             'files': self.files,
@@ -49,59 +97,47 @@ class DiskScanner:
             'errors': self.errors
         }
     
-    def _scan_directory(self, directory: Path, excluded_dirs: List[str]):
-        """Recursively scan a directory."""
-        if is_excluded_path(directory, excluded_dirs):
-            return
-        
-        try:
-            if any(directory.resolve().is_relative_to(ep) for ep in self.exclude_paths):
-                return
-        except OSError:
-            pass
-        
-        try:
-            items = list(directory.iterdir())
-        except (PermissionError, OSError) as e:
-            self.errors.append(f"Cannot access {directory}: {e}")
-            return
-        
-        for item in items:
-            if self.progress_callback and self.total_scanned % 100 == 0:
-                self.progress_callback(self.total_scanned)
-            
-            if is_excluded_path(item, excluded_dirs):
-                continue
-            
-            try:
-                if item.is_file():
-                    file_info = get_file_info(item)
-                    if file_info:
-                        self.files.append(file_info)
-                        # Add to parent directory size
-                        self.directories[item.parent] += file_info['size']
-                        self.total_scanned += 1
-                elif item.is_dir():
-                    # Recursively scan subdirectories
-                    self._scan_directory(item, excluded_dirs)
-            except (PermissionError, OSError) as e:
-                self.errors.append(f"Cannot access {item}: {e}")
-                continue
-    
     def get_largest_directories(self, limit: int = 20) -> List[tuple]:
         """Get the largest directories by size."""
-        sorted_dirs = sorted(
-            self.directories.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
-        return sorted_dirs[:limit]
+        return heapq.nlargest(limit, self.directories.items(), key=lambda x: x[1])
     
     def get_largest_files(self, limit: int = 20) -> List[Dict]:
         """Get the largest files."""
-        sorted_files = sorted(
-            self.files,
-            key=lambda x: x['size'],
-            reverse=True
-        )
-        return sorted_files[:limit]
+        return heapq.nlargest(limit, self.files, key=lambda x: x['size'])
+
+
+def _scan_subtree(directory, excluded_prefixes):
+    """Scan a directory subtree. Runs in a thread pool worker."""
+    files = []
+    dirs = defaultdict(int)
+    errors = []
+    _scan_recursive(directory, excluded_prefixes, files, dirs, errors)
+    return files, dict(dirs), errors
+
+
+def _scan_recursive(directory, excluded_prefixes, files, dirs, errors):
+    """Recursively scan using os.scandir for maximum performance."""
+    try:
+        scandir_it = os.scandir(directory)
+    except (PermissionError, OSError) as e:
+        errors.append(f"Cannot access {directory}: {e}")
+        return
+    
+    with scandir_it:
+        for entry in scandir_it:
+            try:
+                if entry.is_file():
+                    st = entry.stat()
+                    files.append({
+                        'path': entry.path,
+                        'size': st.st_size,
+                        'atime': st.st_atime,
+                        'mtime': st.st_mtime,
+                        'ctime': st.st_ctime,
+                    })
+                    dirs[directory] += st.st_size
+                elif entry.is_dir(follow_symlinks=False):
+                    if not entry.path.startswith(excluded_prefixes):
+                        _scan_recursive(entry.path, excluded_prefixes, files, dirs, errors)
+            except (PermissionError, OSError):
+                continue

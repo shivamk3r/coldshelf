@@ -264,7 +264,7 @@ class TestScannerExcludePaths:
         scanner = DiskScanner(tmp_path, exclude_paths=[excluded])
         result = scanner.scan()
 
-        scanned_names = {f["path"].name for f in result["files"]}
+        scanned_names = {os.path.basename(f["path"]) for f in result["files"]}
         assert "keep.txt" in scanned_names
         assert "hidden.txt" not in scanned_names
 
@@ -278,7 +278,7 @@ class TestScannerExcludePaths:
         scanner = DiskScanner(tmp_path, exclude_paths=[tmp_path / "archive"])
         result = scanner.scan()
 
-        scanned_names = {f["path"].name for f in result["files"]}
+        scanned_names = {os.path.basename(f["path"]) for f in result["files"]}
         assert "top.txt" in scanned_names
         assert "buried.txt" not in scanned_names
 
