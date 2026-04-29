@@ -262,38 +262,52 @@ def clean(ctx, path: Optional[Path], age_months: int):
 @cli.command()
 @click.option('--path', type=click.Path(exists=True, path_type=Path),
               help='Directory to scan (default: home directory)')
+@click.option('--target-path', type=click.Path(path_type=Path),
+              help='Local folder to use as archive destination')
 @click.option('--ssd-path', type=click.Path(path_type=Path),
               help='Path to external SSD (default: auto-detect)')
 @click.option('--age-months', type=int, default=DEFAULT_AGE_THRESHOLD_MONTHS,
               help=f'Age threshold in months (default: {DEFAULT_AGE_THRESHOLD_MONTHS})')
 @click.pass_context
-def archive(ctx, path: Optional[Path], ssd_path: Optional[Path], age_months: int):
-    """Move old files to external SSD."""
+def archive(ctx, path: Optional[Path], target_path: Optional[Path], ssd_path: Optional[Path], age_months: int):
+    """Move old files to external SSD or local folder."""
     print_header()
     
     scan_path = path or Path.home()
     console.print(f"[cyan]Scanning: {scan_path}[/cyan]\n")
     
-    # Detect external SSD
-    console.print("[bold yellow]🔍 Detecting external SSD...[/bold yellow]")
-    try:
-        if ssd_path:
-            target_ssd = Path(ssd_path)
-            if not target_ssd.exists():
-                console.print(f"[red]❌ Error: Path {ssd_path} does not exist[/red]")
+    # Determine archive target: --target-path > --ssd-path > auto-detect SSD
+    if target_path:
+        try:
+            target_path.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError) as e:
+            console.print(f"[red]❌ Error: Cannot create archive folder {target_path}: {e}[/red]")
+            sys.exit(1)
+        archive_target = target_path
+        target_label = "local folder"
+        console.print(f"[green]✅ Using local archive folder: {archive_target}[/green]")
+    elif ssd_path:
+        if not ssd_path.exists():
+            console.print(f"[red]❌ Error: Path {ssd_path} does not exist[/red]")
+            sys.exit(1)
+        archive_target = ssd_path
+        target_label = "external SSD"
+        console.print(f"[green]✅ Using external SSD: {archive_target}[/green]")
+    else:
+        console.print("[bold yellow]🔍 Detecting external SSD...[/bold yellow]")
+        try:
+            archive_target = select_external_ssd()
+            if not archive_target:
+                console.print("[red]❌ No external SSD detected. Use --ssd-path or --target-path[/red]")
                 sys.exit(1)
-        else:
-            target_ssd = select_external_ssd()
-            if not target_ssd:
-                console.print("[red]❌ No external SSD detected. Please specify with --ssd-path[/red]")
-                sys.exit(1)
-        
-        console.print(f"[green]✅ Using external SSD: {target_ssd}[/green]")
-    except Exception as e:
-        console.print(f"[red]❌ Error detecting SSD: {e}[/red]")
-        sys.exit(1)
+            target_label = "external SSD"
+            console.print(f"[green]✅ Using external SSD: {archive_target}[/green]")
+        except Exception as e:
+            console.print(f"[red]❌ Error detecting SSD: {e}[/red]")
+            sys.exit(1)
     
-    scanner = DiskScanner(scan_path)
+    archive_base = archive_target / "archived_files"
+    scanner = DiskScanner(scan_path, exclude_paths=[archive_target])
     analyzer = FileAnalyzer(age_threshold=timedelta(days=age_months * 30))
     
     with Progress(
@@ -306,6 +320,8 @@ def archive(ctx, path: Optional[Path], ssd_path: Optional[Path], age_months: int
         progress.update(task, completed=True)
     
     files = scan_results['files']
+    # Skip symlinks (e.g. left behind from previous archive runs)
+    files = [f for f in files if not f['path'].is_symlink()]
     old_files = show_old_files_analysis(analyzer, files, age_months)
     
     if not old_files:
@@ -317,19 +333,17 @@ def archive(ctx, path: Optional[Path], ssd_path: Optional[Path], age_months: int
     console.print(f"\n[bold]Summary:[/bold]")
     console.print(f"  • Files to move: {len(old_files)}")
     console.print(f"  • Space to archive: {savings['old_files_size_formatted']}")
-    console.print(f"  • Target: {target_ssd}")
+    console.print(f"  • Target: {archive_target}")
     
     # Confirm before moving
     if not ctx.obj.get('dry_run'):
-        if not Confirm.ask("\n[bold red]⚠️  Move these files to external SSD?[/bold red]", default=False):
+        if not Confirm.ask(f"\n[bold red]⚠️  Move these files to {target_label}?[/bold red]", default=False):
             console.print("[yellow]Operation cancelled.[/yellow]")
             return
     
     # Execute move
     executor = ActionExecutor(dry_run=ctx.obj.get('dry_run', False))
-    console.print("\n[bold yellow]📦 Moving files to external SSD...[/bold yellow]")
-    
-    archive_base = target_ssd / "archived_files"
+    console.print(f"\n[bold yellow]📦 Moving files to {target_label}...[/bold yellow]")
     result = executor.move_files_to_ssd(old_files, archive_base, scan_path, confirm=False)
     
     console.print(f"\n[green]✅ Archive complete![/green]")

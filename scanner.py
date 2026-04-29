@@ -13,15 +13,17 @@ from utils import get_file_info, is_excluded_path, format_size
 class DiskScanner:
     """Scans disk and collects file information."""
     
-    def __init__(self, root_path: Optional[Path] = None, progress_callback: Optional[Callable] = None):
+    def __init__(self, root_path: Optional[Path] = None, progress_callback: Optional[Callable] = None, exclude_paths: Optional[List[Path]] = None):
         """Initialize scanner.
         
         Args:
             root_path: Root directory to scan (default: user home)
             progress_callback: Optional callback for progress updates
+            exclude_paths: Additional directory paths to exclude from scanning
         """
         self.root_path = root_path or Path.home()
         self.progress_callback = progress_callback
+        self.exclude_paths = [Path(p).resolve() for p in (exclude_paths or [])]
         self.files: List[Dict] = []
         self.directories: Dict[Path, int] = defaultdict(int)
         self.total_scanned = 0
@@ -51,6 +53,12 @@ class DiskScanner:
         """Recursively scan a directory."""
         if is_excluded_path(directory, excluded_dirs):
             return
+        
+        try:
+            if any(directory.resolve().is_relative_to(ep) for ep in self.exclude_paths):
+                return
+        except OSError:
+            pass
         
         try:
             items = list(directory.iterdir())

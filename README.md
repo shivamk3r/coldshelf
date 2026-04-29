@@ -6,7 +6,7 @@ A Python CLI tool to help manage disk space on macOS by analyzing disk usage, id
 
 - **Disk Usage Analysis**: Scan and visualize disk usage with detailed breakdowns
 - **Cache File Detection**: Automatically identify cache and temporary files that can be safely removed
-- **Old File Archiving**: Find files not accessed in 6+ months and move them to external SSD
+- **Old File Archiving**: Find files not accessed in 6+ months and move them to an external SSD or a local folder
 - **Safety First**: Requires explicit confirmation before any destructive actions
 - **Beautiful CLI**: Rich terminal UI with progress bars, tables, and color-coded output
 - **Auto-Detection**: Automatically detects external SSDs for archiving
@@ -60,18 +60,30 @@ With custom age threshold:
 uv run python main.py clean --age-months 3
 ```
 
-### Archive Old Files to External SSD
+### Archive Old Files
 
-Move old files (not accessed in 6+ months) to external SSD:
+Move old files (not accessed in 6+ months) to an external SSD or a local folder:
 
 ```bash
 uv run python main.py archive
 ```
 
-With custom options:
+Archive to a local folder:
 
 ```bash
-uv run python main.py archive --age-months 12 --ssd-path /Volumes/MySSD
+uv run python main.py archive --target-path /path/to/archive/folder
+```
+
+Archive to a specific external SSD:
+
+```bash
+uv run python main.py archive --ssd-path /Volumes/MySSD
+```
+
+With custom age threshold:
+
+```bash
+uv run python main.py archive --age-months 12 --target-path ./my_archive
 ```
 
 ### Full Report
@@ -95,12 +107,13 @@ uv run python main.py archive --dry-run
 
 - `analyze` - Analyze disk usage and show insights
 - `clean` - Identify and remove cache files
-- `archive` - Move old files to external SSD
+- `archive` - Move old files to external SSD or local folder
 - `full-report` - Generate comprehensive analysis report
 
 ## Options
 
 - `--path PATH` - Directory to scan (default: home directory)
+- `--target-path PATH` - Local folder to use as archive destination
 - `--ssd-path PATH` - Path to external SSD (default: auto-detect)
 - `--age-months N` - Age threshold in months (default: 6)
 - `--dry-run` - Show what would be done without making changes
@@ -130,10 +143,11 @@ Files are considered "old" if they:
 
 ### Archiving Process
 
-When archiving files to external SSD:
-1. Files are moved to the external drive preserving directory structure
+When archiving files to an external SSD or local folder:
+1. Files are moved to the target location preserving directory structure
 2. Symlinks are created in the original location pointing to the archived files
 3. This allows applications to continue working while freeing up space
+4. If the archive target is inside the scanned directory, it is automatically excluded from scanning to prevent re-archiving
 
 ## Configuration
 
@@ -147,7 +161,7 @@ Default settings can be modified in `config.py`:
 
 - Python 3.9+
 - macOS (uses macOS-specific tools like `diskutil`)
-- External SSD (for archiving feature)
+- External SSD or local folder (for archiving feature)
 - [uv](https://docs.astral.sh/uv/) (for dependency management)
 
 ## Action Log
@@ -158,7 +172,7 @@ All actions (deletions, moves) are logged to `~/.mac-disk-cleaner-actions.log` w
 
 - Requires appropriate file permissions
 - Some system files may be inaccessible
-- External SSD must be mounted and writable
+- External SSD must be mounted and writable (when using `--ssd-path`)
 - Large scans may take time depending on disk size
 
 ## License
