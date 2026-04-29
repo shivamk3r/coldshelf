@@ -9,7 +9,7 @@ from typing import Optional
 import click
 from rich.console import Console
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.tree import Tree
@@ -357,12 +357,134 @@ def full_report(path: Optional[Path], age_months: int):
     scanner = DiskScanner(scan_path)
     analyzer = FileAnalyzer(age_threshold=timedelta(days=age_months * 30))
     
-    # Run all analyses
-    scan_results = show_disk_usage_analysis(scanner, analyzer)
-    files = scan_results['files']
+    # Run all analyses with progress tracking
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        # Phase 1: Scan filesystem (indeterminate - total unknown upfront)
+        scan_task = progress.add_task(
+            "[cyan]Phase 1/3:[/cyan] Scanning filesystem...", total=None)
+        
+        def on_scan_progress(count):
+            progress.update(
+                scan_task,
+                description=f"[cyan]Phase 1/3:[/cyan] Scanning filesystem... ({count:,} files found)")
+        
+        scanner.progress_callback = on_scan_progress
+        scan_results = scanner.scan()
+        files = scan_results['files']
+        directories = scan_results['directories']
+        total_files = len(files)
+        progress.update(
+            scan_task, total=1, completed=1,
+            description=f"[green]Phase 1/3:[/green] Scan complete ({total_files:,} files found)")
+        
+        # Phase 2: Identify cache files
+        analysis_total = max(total_files, 1)
+        cache_task = progress.add_task(
+            "[cyan]Phase 2/3:[/cyan] Identifying cache files...",
+            total=analysis_total)
+        
+        cache_files = analyzer.find_cache_files(
+            files,
+            progress_callback=lambda n: progress.update(cache_task, completed=n))
+        progress.update(
+            cache_task, completed=analysis_total,
+            description=f"[green]Phase 2/3:[/green] Found {len(cache_files):,} cache files")
+        
+        # Phase 3: Find old files
+        old_task = progress.add_task(
+            f"[cyan]Phase 3/3:[/cyan] Finding old files (>{age_months} months)...",
+            total=analysis_total)
+        
+        old_files = analyzer.find_old_files(
+            files, MIN_FILE_SIZE_TO_MOVE,
+            progress_callback=lambda n: progress.update(old_task, completed=n))
+        progress.update(
+            old_task, completed=analysis_total,
+            description=f"[green]Phase 3/3:[/green] Found {len(old_files):,} old files")
     
-    cache_files = show_cache_analysis(analyzer, files)
-    old_files = show_old_files_analysis(analyzer, files, age_months)
+    # Compute disk usage stats (fast, no progress needed)
+    usage_stats = analyzer.analyze_disk_usage(files, directories)
+    
+    # Display results
+    if scan_results['errors']:
+        console.print(f"\n[yellow]⚠️  {len(scan_results['errors'])} errors encountered during scan[/yellow]")
+    
+    console.print("\n[bold green]📈 Disk Usage Summary[/bold green]")
+    stats_table = Table(box=box.ROUNDED)
+    stats_table.add_column("Metric", style="cyan")
+    stats_table.add_column("Value", style="green")
+    stats_table.add_row("Total Files Scanned", f"{usage_stats['file_count']:,}")
+    stats_table.add_row("Total Size", usage_stats['total_size_formatted'])
+    stats_table.add_row("Average File Size", format_size(usage_stats['average_file_size']))
+    console.print(stats_table)
+    
+    if usage_stats['top_extensions']:
+        console.print("\n[bold green]📁 Top File Types by Size[/bold green]")
+        ext_table = Table(box=box.ROUNDED)
+        ext_table.add_column("Extension", style="cyan")
+        ext_table.add_column("Count", style="yellow", justify="right")
+        ext_table.add_column("Total Size", style="green", justify="right")
+        for ext, data in usage_stats['top_extensions']:
+            ext_table.add_row(ext, f"{data['count']:,}", format_size(data['size']))
+        console.print(ext_table)
+    
+    console.print("\n[bold green]📂 Largest Directories[/bold green]")
+    largest_dirs = scanner.get_largest_directories(10)
+    dir_table = Table(box=box.ROUNDED)
+    dir_table.add_column("Directory", style="cyan")
+    dir_table.add_column("Size", style="green", justify="right")
+    for dir_path, size in largest_dirs:
+        dir_table.add_row(str(dir_path), format_size(size))
+    console.print(dir_table)
+    
+    console.print("\n[bold green]📄 Largest Files[/bold green]")
+    largest_files = scanner.get_largest_files(10)
+    file_table = Table(box=box.ROUNDED)
+    file_table.add_column("File", style="cyan")
+    file_table.add_column("Size", style="green", justify="right")
+    for file_info in largest_files:
+        file_table.add_row(str(file_info['path']), format_size(file_info['size']))
+    console.print(file_table)
+    
+    cache_savings = analyzer.calculate_potential_savings(cache_files, [])
+    console.print(f"\n[bold green]🧹 Cache Files[/bold green]")
+    console.print(f"Found {len(cache_files)} cache files")
+    console.print(f"Potential space savings: [green]{cache_savings['cache_size_formatted']}[/green]")
+    if cache_files:
+        console.print("\n[bold]Sample Cache Files (first 20):[/bold]")
+        cache_table = Table(box=box.ROUNDED)
+        cache_table.add_column("File", style="cyan")
+        cache_table.add_column("Size", style="green", justify="right")
+        cache_table.add_column("Reason", style="yellow")
+        for cf in cache_files[:20]:
+            cache_table.add_row(str(cf['path']), format_size(cf['size']), cf.get('reason', 'cache'))
+        console.print(cache_table)
+    
+    old_savings = analyzer.calculate_potential_savings([], old_files)
+    console.print(f"\n[bold green]📦 Old Files (not accessed in {age_months}+ months)[/bold green]")
+    console.print(f"Found {len(old_files)} old files")
+    console.print(f"Total size: [green]{old_savings['old_files_size_formatted']}[/green]")
+    if old_files:
+        console.print("\n[bold]Sample Old Files (first 20):[/bold]")
+        old_table = Table(box=box.ROUNDED)
+        old_table.add_column("File", style="cyan")
+        old_table.add_column("Size", style="green", justify="right")
+        old_table.add_column("Last Accessed", style="yellow")
+        old_table.add_column("Age", style="magenta")
+        for of in old_files[:20]:
+            days_old = of.get('days_old', 0)
+            old_table.add_row(
+                str(of['path']), format_size(of['size']),
+                of['accessed'].strftime('%Y-%m-%d'), f"{days_old} days")
+        console.print(old_table)
     
     # Overall savings potential
     savings = analyzer.calculate_potential_savings(cache_files, old_files)

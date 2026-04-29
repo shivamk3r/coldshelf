@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Callable
 import fnmatch
 
 from config import (
@@ -26,11 +26,14 @@ class FileAnalyzer:
         self.age_threshold = age_threshold or DEFAULT_AGE_THRESHOLD
         self.now = datetime.now()
     
-    def find_cache_files(self, files: List[Dict]) -> List[Dict]:
+    def find_cache_files(self, files: List[Dict], progress_callback: Optional[Callable] = None) -> List[Dict]:
         """Identify cache files that can be safely removed."""
         cache_files = []
+        total = len(files)
         
-        for file_info in files:
+        for i, file_info in enumerate(files, 1):
+            if progress_callback and i % 100 == 0:
+                progress_callback(i)
             file_path = file_info['path']
             path_str = str(file_path)
             
@@ -56,6 +59,9 @@ class FileAnalyzer:
                     'reason': self._get_cache_reason(file_path, is_cache_dir, is_cache_ext, is_cache_name)
                 })
         
+        if progress_callback and total > 0:
+            progress_callback(total)
+        
         return cache_files
     
     def _get_cache_reason(self, path: Path, is_dir: bool, is_ext: bool, is_name: bool) -> str:
@@ -69,12 +75,15 @@ class FileAnalyzer:
             reasons.append("cache in name")
         return ", ".join(reasons) if reasons else "cache pattern"
     
-    def find_old_files(self, files: List[Dict], min_size: int = MIN_FILE_SIZE_TO_MOVE) -> List[Dict]:
+    def find_old_files(self, files: List[Dict], min_size: int = MIN_FILE_SIZE_TO_MOVE, progress_callback: Optional[Callable] = None) -> List[Dict]:
         """Find files that haven't been accessed in the threshold period."""
         old_files = []
         cutoff_date = self.now - self.age_threshold
+        total = len(files)
         
-        for file_info in files:
+        for i, file_info in enumerate(files, 1):
+            if progress_callback and i % 100 == 0:
+                progress_callback(i)
             # Skip if too small
             if file_info['size'] < min_size:
                 continue
@@ -87,6 +96,9 @@ class FileAnalyzer:
                     'days_old': days_old,
                     'age_category': self._categorize_age(days_old)
                 })
+        
+        if progress_callback and total > 0:
+            progress_callback(total)
         
         # Sort by size (largest first)
         old_files.sort(key=lambda x: x['size'], reverse=True)
