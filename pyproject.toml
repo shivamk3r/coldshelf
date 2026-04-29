@@ -1,0 +1,11 @@
+[project]
+name = "mac-disk-cleaner"
+version = "1.0.0"
+description = "A CLI tool to manage disk space on macOS by analyzing usage, cleaning caches, and archiving old files to external SSD"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+dependencies = [
+    "click>=8.1.0",
+    "rich>=13.0.0",
+]

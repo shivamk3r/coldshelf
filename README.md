@@ -20,14 +20,14 @@ git clone <repository-url>
 cd mac-disk-cleaner
 ```
 
-2. Install dependencies:
+2. Sync dependencies (installs Python if needed, creates a virtualenv, and installs packages):
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
-3. Make the script executable (optional):
+That's it. If you don't have `uv` yet, install it with:
 ```bash
-chmod +x main.py
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 ## Usage
@@ -37,13 +37,13 @@ chmod +x main.py
 Scan and analyze disk usage without making any changes:
 
 ```bash
-python main.py analyze
+uv run python main.py analyze
 ```
 
 Scan a specific directory:
 
 ```bash
-python main.py analyze --path /path/to/directory
+uv run python main.py analyze --path /path/to/directory
 ```
 
 ### Clean Cache Files
@@ -51,13 +51,13 @@ python main.py analyze --path /path/to/directory
 Identify and remove cache files (with confirmation):
 
 ```bash
-python main.py clean
+uv run python main.py clean
 ```
 
 With custom age threshold:
 
 ```bash
-python main.py clean --age-months 3
+uv run python main.py clean --age-months 3
 ```
 
 ### Archive Old Files to External SSD
@@ -65,13 +65,13 @@ python main.py clean --age-months 3
 Move old files (not accessed in 6+ months) to external SSD:
 
 ```bash
-python main.py archive
+uv run python main.py archive
 ```
 
 With custom options:
 
 ```bash
-python main.py archive --age-months 12 --ssd-path /Volumes/MySSD
+uv run python main.py archive --age-months 12 --ssd-path /Volumes/MySSD
 ```
 
 ### Full Report
@@ -79,7 +79,7 @@ python main.py archive --age-months 12 --ssd-path /Volumes/MySSD
 Generate a comprehensive report showing all insights:
 
 ```bash
-python main.py full-report
+uv run python main.py full-report
 ```
 
 ### Dry Run Mode
@@ -87,8 +87,8 @@ python main.py full-report
 Preview what would be done without making changes:
 
 ```bash
-python main.py clean --dry-run
-python main.py archive --dry-run
+uv run python main.py clean --dry-run
+uv run python main.py archive --dry-run
 ```
 
 ## Commands
@@ -145,14 +145,10 @@ Default settings can be modified in `config.py`:
 
 ## Requirements
 
-- Python 3.7+
+- Python 3.9+
 - macOS (uses macOS-specific tools like `diskutil`)
 - External SSD (for archiving feature)
-
-## Dependencies
-
-- `click`: CLI framework
-- `rich`: Beautiful terminal UI
+- [uv](https://docs.astral.sh/uv/) (for dependency management)
 
 ## Action Log
 
