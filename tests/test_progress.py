@@ -7,9 +7,10 @@ from unittest.mock import MagicMock
 
 from click.testing import CliRunner
 
-from scanner import DiskScanner
+from scanner import DiskScanner, ScanProgress
 from analyzer import FileAnalyzer
 from main import cli
+from progress_estimator import ScanProgressEstimator
 
 
 def _make_test_files(tmp_path, count=200, prefix="file", ext=".txt", content="content"):
@@ -71,6 +72,133 @@ class TestScannerProgressCallback:
         scanner = DiskScanner(tmp_path, progress_callback=callback)
         scanner.scan()
         assert callback.call_count == 0
+
+
+class TestScannerDetailedProgressCallback:
+    """Tests for detailed scan progress snapshots."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_excluded_dirs(self, monkeypatch):
+        monkeypatch.setattr("scanner.EXCLUDED_DIRECTORIES", [])
+        monkeypatch.setattr("scanner.USER_EXCLUDED_DIRECTORIES", [])
+
+    def test_detailed_callback_receives_final_snapshot(self, tmp_path):
+        _make_test_files(tmp_path, count=25)
+        events = []
+
+        scanner = DiskScanner(tmp_path, detailed_progress_callback=events.append)
+        result = scanner.scan()
+
+        assert events
+        assert events[-1].is_finished is True
+        assert events[-1].files_scanned == len(result["files"]) == 25
+        assert result["total_scanned"] == 25
+
+    def test_detailed_counts_are_monotonically_increasing(self, tmp_path):
+        for dirname in range(4):
+            nested = tmp_path / f"dir_{dirname}" / "nested"
+            nested.mkdir(parents=True)
+            _make_test_files(nested, count=5, prefix=f"file_{dirname}")
+
+        events = []
+        scanner = DiskScanner(tmp_path, detailed_progress_callback=events.append)
+        scanner.scan()
+
+        assert max(event.directories_discovered for event in events) >= 9
+        assert events[-1].directories_completed == events[-1].directories_discovered
+        for previous, current in zip(events, events[1:]):
+            assert current.files_scanned >= previous.files_scanned
+            assert current.directories_discovered >= previous.directories_discovered
+            assert current.directories_completed >= previous.directories_completed
+            assert current.directories_completed <= current.directories_discovered
+
+
+class TestScanProgressEstimator:
+    """Tests for heuristic scan total estimation."""
+
+    def test_estimate_increases_when_many_directories_are_discovered(self):
+        estimator = ScanProgressEstimator()
+
+        first = estimator.update(
+            ScanProgress(
+                files_scanned=1_000,
+                directories_discovered=10,
+                directories_completed=5,
+                errors=0,
+            )
+        )
+        second = estimator.update(
+            ScanProgress(
+                files_scanned=1_100,
+                directories_discovered=50,
+                directories_completed=5,
+                errors=0,
+            )
+        )
+
+        assert second.total > first.total
+
+    def test_estimate_decreases_as_known_work_drains(self):
+        estimator = ScanProgressEstimator()
+
+        first = estimator.update(
+            ScanProgress(
+                files_scanned=1_000,
+                directories_discovered=100,
+                directories_completed=10,
+                errors=0,
+            )
+        )
+        second = estimator.update(
+            ScanProgress(
+                files_scanned=1_200,
+                directories_discovered=100,
+                directories_completed=80,
+                errors=0,
+            )
+        )
+
+        assert second.total < first.total
+        assert second.total > second.completed
+
+    def test_completed_never_exceeds_displayed_total_while_running(self):
+        estimator = ScanProgressEstimator()
+
+        estimate = estimator.update(
+            ScanProgress(
+                files_scanned=5_000,
+                directories_discovered=10,
+                directories_completed=10,
+                errors=0,
+            )
+        )
+
+        assert estimate.total > estimate.completed
+
+    def test_finalization_snaps_to_actual_total(self):
+        estimator = ScanProgressEstimator()
+        estimator.update(
+            ScanProgress(
+                files_scanned=1_000,
+                directories_discovered=100,
+                directories_completed=10,
+                errors=0,
+            )
+        )
+
+        estimate = estimator.update(
+            ScanProgress(
+                files_scanned=1_234,
+                directories_discovered=100,
+                directories_completed=100,
+                errors=0,
+                is_finished=True,
+            )
+        )
+
+        assert estimate.completed == 1_234
+        assert estimate.total == 1_234
+        assert estimate.is_estimating is False
 
 
 class TestAnalyzerCacheProgressCallback:

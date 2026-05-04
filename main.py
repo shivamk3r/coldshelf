@@ -19,6 +19,7 @@ from rich import box
 from config import DEFAULT_AGE_THRESHOLD_MONTHS, MIN_FILE_SIZE_TO_MOVE
 from scanner import DiskScanner
 from analyzer import FileAnalyzer
+from progress_estimator import ScanProgressEstimator
 from ssd_detector import detect_external_ssds, select_external_ssd
 from executor import ActionExecutor
 from utils import format_size
@@ -382,22 +383,41 @@ def full_report(path: Optional[Path], age_months: int):
         TimeRemainingColumn(),
         console=console,
     ) as progress:
-        # Phase 1: Scan filesystem (indeterminate - total unknown upfront)
+        # Phase 1: Scan filesystem with a moving heuristic estimate.
+        estimator = ScanProgressEstimator()
         scan_task = progress.add_task(
-            "[cyan]Phase 1/3:[/cyan] Scanning filesystem...", total=None)
+            "[cyan]Phase 1/3:[/cyan] Scanning filesystem... (estimating)",
+            total=estimator.placeholder_total,
+        )
         
-        def on_scan_progress(count):
+        def on_scan_progress(scan_progress):
+            estimate = estimator.update(scan_progress)
+            if scan_progress.is_finished:
+                return
+            estimate_label = (
+                "estimating total"
+                if estimate.is_estimating
+                else f"~{estimate.total:,} est."
+            )
             progress.update(
                 scan_task,
-                description=f"[cyan]Phase 1/3:[/cyan] Scanning filesystem... ({count:,} files found)")
+                completed=estimate.completed,
+                total=estimate.total,
+                description=(
+                    "[cyan]Phase 1/3:[/cyan] Scanning filesystem... "
+                    f"({scan_progress.files_scanned:,} files, "
+                    f"{scan_progress.directories_remaining:,} dirs left, "
+                    f"{estimate_label})"
+                ),
+            )
         
-        scanner.progress_callback = on_scan_progress
+        scanner.detailed_progress_callback = on_scan_progress
         scan_results = scanner.scan()
         files = scan_results['files']
         directories = scan_results['directories']
         total_files = len(files)
         progress.update(
-            scan_task, total=1, completed=1,
+            scan_task, total=total_files, completed=total_files,
             description=f"[green]Phase 1/3:[/green] Scan complete ({total_files:,} files found)")
         
         # Phase 2: Identify cache files
