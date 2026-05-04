@@ -195,6 +195,15 @@ utils.py         Shared utilities (format_size, safe_delete, etc.)
 ssd_detector.py  External SSD auto-detection (diskutil)
 ```
 
+## Agent Context
+
+`AGENTS.md` is the root guide for AI agents working in this repository.
+Shared agent skills live in `.agents/skills/`, and shared command prompts live
+in `.agents/commands/`. Claude, Cursor, and Codex compatibility folders point to
+those canonical assets through symlinks under `.claude`, `.cursor`, and `.codex`.
+If `.codex/environments/` is added later, treat it as Codex-specific local
+environment setup.
+
 ## Limitations
 
 - Requires appropriate file permissions
