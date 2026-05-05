@@ -13,6 +13,7 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
+from rich.text import Text
 from rich.tree import Tree
 from rich import box
 
@@ -25,6 +26,16 @@ from executor import ActionExecutor
 from utils import format_size
 
 console = Console()
+
+
+class ScanAwareTimeRemainingColumn(TimeRemainingColumn):
+    """Use explicit scan ETA when available, otherwise fall back to Rich."""
+
+    def render(self, task):
+        eta_text = task.fields.get("eta")
+        if eta_text and not task.finished:
+            return Text(str(eta_text), style="progress.remaining")
+        return super().render(task)
 
 
 def print_header():
@@ -380,7 +391,7 @@ def full_report(path: Optional[Path], age_months: int):
         BarColumn(),
         TaskProgressColumn(),
         TimeElapsedColumn(),
-        TimeRemainingColumn(),
+        ScanAwareTimeRemainingColumn(),
         console=console,
     ) as progress:
         # Phase 1: Scan filesystem with a moving heuristic estimate.
@@ -388,6 +399,7 @@ def full_report(path: Optional[Path], age_months: int):
         scan_task = progress.add_task(
             "[cyan]Phase 1/3:[/cyan] Scanning filesystem... (estimating)",
             total=estimator.placeholder_total,
+            eta="ETA estimating",
         )
         
         def on_scan_progress(scan_progress):
@@ -403,6 +415,7 @@ def full_report(path: Optional[Path], age_months: int):
                 scan_task,
                 completed=estimate.completed,
                 total=estimate.total,
+                eta=estimate.eta_text,
                 description=(
                     "[cyan]Phase 1/3:[/cyan] Scanning filesystem... "
                     f"({scan_progress.files_scanned:,} files, "
@@ -418,6 +431,7 @@ def full_report(path: Optional[Path], age_months: int):
         total_files = len(files)
         progress.update(
             scan_task, total=total_files, completed=total_files,
+            eta="",
             description=f"[green]Phase 1/3:[/green] Scan complete ({total_files:,} files found)")
         
         # Phase 2: Identify cache files

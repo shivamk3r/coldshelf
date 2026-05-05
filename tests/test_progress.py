@@ -116,6 +116,31 @@ class TestScannerDetailedProgressCallback:
 class TestScanProgressEstimator:
     """Tests for heuristic scan total estimation."""
 
+    def test_eta_is_available_once_scan_has_rate(self):
+        now = 0.0
+        estimator = ScanProgressEstimator(upward_smoothing=1.0, clock=lambda: now)
+        estimator.update(
+            ScanProgress(
+                files_scanned=0,
+                directories_discovered=1,
+                directories_completed=0,
+                errors=0,
+            )
+        )
+
+        now = 10.0
+        estimate = estimator.update(
+            ScanProgress(
+                files_scanned=1_000,
+                directories_discovered=10,
+                directories_completed=5,
+                errors=0,
+            )
+        )
+
+        assert estimate.eta_seconds == pytest.approx(10.0)
+        assert estimate.eta_text == "ETA 0:00:10"
+
     def test_estimate_increases_when_many_directories_are_discovered(self):
         estimator = ScanProgressEstimator()
 
@@ -175,6 +200,21 @@ class TestScanProgressEstimator:
 
         assert estimate.total > estimate.completed
 
+    def test_running_scan_keeps_visible_remaining_work_when_directories_left(self):
+        estimator = ScanProgressEstimator()
+
+        estimate = estimator.update(
+            ScanProgress(
+                files_scanned=459_765,
+                directories_discovered=1_000,
+                directories_completed=980,
+                errors=0,
+            )
+        )
+
+        assert estimate.total > estimate.completed + 1
+        assert estimate.completed / estimate.total <= 0.995
+
     def test_finalization_snaps_to_actual_total(self):
         estimator = ScanProgressEstimator()
         estimator.update(
@@ -199,6 +239,7 @@ class TestScanProgressEstimator:
         assert estimate.completed == 1_234
         assert estimate.total == 1_234
         assert estimate.is_estimating is False
+        assert estimate.eta_text == "ETA 0:00:00"
 
 
 class TestAnalyzerCacheProgressCallback:
