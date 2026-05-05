@@ -30,7 +30,7 @@ Primary responsibilities:
 - Render Rich tables, summaries, and progress bars.
 - Prompt for confirmation before destructive actions.
 - Select archive targets using the precedence `--target-path`, then
-  `--ssd-path`, then auto-detected external SSD.
+  `--external-path`, then auto-detected external drive.
 - Exclude archive targets from scans when archiving.
 
 The helper display functions in this file keep command bodies readable:
@@ -91,7 +91,7 @@ Primary responsibilities:
 
 - Track dry-run state.
 - Log every intended or completed action in memory and in
-  `~/.mac-disk-cleaner-actions.log`.
+  `~/.disk-space-manager-actions.log`.
 - Delete files through `utils.safe_delete`.
 - Archive files into a target base directory while preserving paths relative to
   the scan root.
@@ -101,17 +101,17 @@ Primary responsibilities:
 The `confirm` parameters on executor methods are currently caller-facing API
 shape; confirmation is handled in `main.py` before the executor is called.
 
-### `ssd_detector.py`
+### `drive_detector.py`
 
-`ssd_detector.py` detects writable external volumes for archive targets.
+`drive_detector.py` detects writable external volumes for archive targets.
 
 Primary responsibilities:
 
-- List mounted volumes using `diskutil list` and `diskutil info`.
-- Fall back to `/Volumes` iteration if `diskutil` is unavailable.
-- Identify external drives using `/Volumes` paths or device differences from
-  the root filesystem.
-- Filter to writable volumes.
+- List mounted volumes for the current platform.
+- On macOS, use `diskutil` and fall back to `/Volumes` iteration.
+- On Linux, parse `/proc/self/mountinfo`, skip pseudo/system filesystems, and
+  consider common user mount roots such as `/media`, `/mnt`, and `/run/media`.
+- Filter to writable external drive candidates.
 - Return the first detected external drive when no manual path is supplied.
 
 ### `progress_estimator.py`
@@ -121,16 +121,16 @@ objects suitable for Rich's determinate progress bars.
 
 The estimator starts with a placeholder total while there is too little
 directory information, then estimates total work from the ratio of completed to
-discovered directories. It smooths increases and decreases, keeps a small amount
-of visible remaining work while directories remain, and snaps to the actual
-total when the scan finishes.
+discovered directories. It smooths increases and decreases, keeps a small
+amount of visible remaining work while directories remain, and snaps to the
+actual total when the scan finishes.
 
 ### `config.py`
 
 `config.py` contains repository-wide constants:
 
 - Default old-file age threshold.
-- Cache directory patterns.
+- Unix-like cache directory patterns.
 - Cache-like file extensions.
 - System and user-home scan exclusions.
 - Minimum file size for archive candidates.
@@ -180,10 +180,10 @@ This command is read-only.
 6. Find old files above the minimum size threshold.
 7. Render preview and savings summary.
 8. Confirm move unless dry-run mode is active.
-9. Archive candidates through `ActionExecutor.move_files_to_ssd`.
+9. Archive candidates through `ActionExecutor.archive_files`.
 
-Target precedence is deliberate: `--target-path` wins over `--ssd-path`, and
-manual paths win over auto-detection.
+Target precedence is deliberate: `--target-path` wins over `--external-path`,
+and manual paths win over auto-detection.
 
 ### `full-report`
 
@@ -201,9 +201,11 @@ The test suite uses pytest and Click's `CliRunner`. It focuses on:
 
 - Archive behavior for local folders.
 - Archive target precedence.
+- Manual external path behavior.
 - Excluding archive targets inside scanned trees.
 - Repeated archive runs.
 - Direct executor archive behavior.
+- Linux external-drive mount parsing and writable-drive filtering.
 - Scanner simple and detailed progress callbacks.
 - Analyzer progress callbacks.
 - Ensuring progress callbacks do not change analysis results.
@@ -223,6 +225,7 @@ When adding features, preserve the existing module boundaries:
 - Keep filesystem traversal concerns in `scanner.py`.
 - Put classification and summary logic in `analyzer.py`.
 - Put file mutations only in `executor.py`.
+- Put external-drive discovery in `drive_detector.py`.
 - Update `config.py` for default thresholds, patterns, and exclusions.
 - Add tests using temporary paths and `CliRunner`; avoid broad real filesystem
   scans in automated validation.

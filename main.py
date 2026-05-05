@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Main CLI entry point for Mac Disk Cleaner."""
+"""Main CLI entry point for Disk Space Manager."""
 
 import os
 import sys
@@ -21,7 +21,7 @@ from config import DEFAULT_AGE_THRESHOLD_MONTHS, MIN_FILE_SIZE_TO_MOVE
 from scanner import DiskScanner
 from analyzer import FileAnalyzer
 from progress_estimator import ScanProgressEstimator
-from ssd_detector import detect_external_ssds, select_external_ssd
+from drive_detector import select_external_drive
 from executor import ActionExecutor
 from utils import format_size
 
@@ -42,11 +42,16 @@ def print_header():
     """Print application header."""
     header = """
     ╔═══════════════════════════════════════════╗
-    ║      Mac Disk Space Manager v1.0         ║
+    ║        Disk Space Manager v1.0          ║
     ║   Clean, Analyze, and Archive Files     ║
     ╚═══════════════════════════════════════════╝
     """
     console.print(header, style="bold cyan")
+
+
+def _is_writable_path(path: Path) -> bool:
+    """Return whether a path is writable by the current process."""
+    return os.access(path, os.W_OK)
 
 
 def show_disk_usage_analysis(scanner: DiskScanner, analyzer: FileAnalyzer):
@@ -189,7 +194,7 @@ def show_old_files_analysis(analyzer: FileAnalyzer, files: list, age_months: int
 @click.option('--dry-run', is_flag=True, help='Show what would be done without making changes')
 @click.pass_context
 def cli(ctx, dry_run):
-    """Mac Disk Space Manager - Clean, analyze, and archive files."""
+    """Disk Space Manager - Clean, analyze, and archive files."""
     ctx.ensure_object(dict)
     ctx.obj['dry_run'] = dry_run
     if dry_run:
@@ -277,19 +282,19 @@ def clean(ctx, path: Optional[Path], age_months: int):
               help='Directory to scan (default: home directory)')
 @click.option('--target-path', type=click.Path(path_type=Path),
               help='Local folder to use as archive destination')
-@click.option('--ssd-path', type=click.Path(path_type=Path),
-              help='Path to external SSD (default: auto-detect)')
+@click.option('--external-path', type=click.Path(path_type=Path),
+              help='Path to external drive (default: auto-detect)')
 @click.option('--age-months', type=int, default=DEFAULT_AGE_THRESHOLD_MONTHS,
               help=f'Age threshold in months (default: {DEFAULT_AGE_THRESHOLD_MONTHS})')
 @click.pass_context
-def archive(ctx, path: Optional[Path], target_path: Optional[Path], ssd_path: Optional[Path], age_months: int):
-    """Move old files to external SSD or local folder."""
+def archive(ctx, path: Optional[Path], target_path: Optional[Path], external_path: Optional[Path], age_months: int):
+    """Move old files to an external drive or local folder."""
     print_header()
     
     scan_path = path or Path.home()
     console.print(f"[cyan]Scanning: {scan_path}[/cyan]\n")
     
-    # Determine archive target: --target-path > --ssd-path > auto-detect SSD
+    # Determine archive target: --target-path > --external-path > auto-detect external drive
     if target_path:
         try:
             target_path.mkdir(parents=True, exist_ok=True)
@@ -299,24 +304,24 @@ def archive(ctx, path: Optional[Path], target_path: Optional[Path], ssd_path: Op
         archive_target = target_path
         target_label = "local folder"
         console.print(f"[green]✅ Using local archive folder: {archive_target}[/green]")
-    elif ssd_path:
-        if not ssd_path.exists():
-            console.print(f"[red]❌ Error: Path {ssd_path} does not exist[/red]")
+    elif external_path:
+        if not external_path.exists() or not _is_writable_path(external_path):
+            console.print(f"[red]❌ Error: Path {external_path} does not exist or is not writable[/red]")
             sys.exit(1)
-        archive_target = ssd_path
-        target_label = "external SSD"
-        console.print(f"[green]✅ Using external SSD: {archive_target}[/green]")
+        archive_target = external_path
+        target_label = "external drive"
+        console.print(f"[green]✅ Using external drive: {archive_target}[/green]")
     else:
-        console.print("[bold yellow]🔍 Detecting external SSD...[/bold yellow]")
+        console.print("[bold yellow]🔍 Detecting external drive...[/bold yellow]")
         try:
-            archive_target = select_external_ssd()
+            archive_target = select_external_drive()
             if not archive_target:
-                console.print("[red]❌ No external SSD detected. Use --ssd-path or --target-path[/red]")
+                console.print("[red]❌ No external drive detected. Use --external-path or --target-path[/red]")
                 sys.exit(1)
-            target_label = "external SSD"
-            console.print(f"[green]✅ Using external SSD: {archive_target}[/green]")
+            target_label = "external drive"
+            console.print(f"[green]✅ Using external drive: {archive_target}[/green]")
         except Exception as e:
-            console.print(f"[red]❌ Error detecting SSD: {e}[/red]")
+            console.print(f"[red]❌ Error detecting external drive: {e}[/red]")
             sys.exit(1)
     
     archive_base = archive_target / "archived_files"
@@ -357,7 +362,7 @@ def archive(ctx, path: Optional[Path], target_path: Optional[Path], ssd_path: Op
     # Execute move
     executor = ActionExecutor(dry_run=ctx.obj.get('dry_run', False))
     console.print(f"\n[bold yellow]📦 Moving files to {target_label}...[/bold yellow]")
-    result = executor.move_files_to_ssd(old_files, archive_base, scan_path, confirm=False)
+    result = executor.archive_files(old_files, archive_base, scan_path, confirm=False)
     
     console.print(f"\n[green]✅ Archive complete![/green]")
     console.print(f"  • Moved: {result['moved']} files")

@@ -1,7 +1,7 @@
 [project]
-name = "mac-disk-cleaner"
+name = "disk-space-manager"
 version = "1.0.0"
-description = "A CLI tool to manage disk space on macOS by analyzing usage, cleaning caches, and archiving old files to external SSD"
+description = "A CLI tool to manage disk space on Unix-like systems by analyzing usage, cleaning caches, and archiving old files to external drives or local folders"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"

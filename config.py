@@ -7,7 +7,7 @@ from datetime import timedelta
 DEFAULT_AGE_THRESHOLD_MONTHS = 6
 DEFAULT_AGE_THRESHOLD = timedelta(days=DEFAULT_AGE_THRESHOLD_MONTHS * 30)
 
-# Common macOS cache directory patterns
+# Common Unix-like cache directory patterns
 CACHE_DIRECTORY_PATTERNS = [
     "**/Library/Caches/**",
     "**/Library/Application Support/**/Cache/**",
@@ -15,6 +15,7 @@ CACHE_DIRECTORY_PATTERNS = [
     "**/tmp/**",
     "**/var/tmp/**",
     "**/var/folders/**",
+    "**/.local/share/Trash/**",
 ]
 
 # Cache file extensions
@@ -35,6 +36,7 @@ EXCLUDED_DIRECTORIES = [
     "/private",
     "/dev",
     "/proc",
+    "/sys",
     "/Volumes",
     "/.Trash",
     "/.fseventsd",
@@ -55,4 +57,4 @@ USER_EXCLUDED_DIRECTORIES = [
 MIN_FILE_SIZE_TO_MOVE = 1024 * 1024
 
 # Action log file
-ACTION_LOG_FILE = Path.home() / ".mac-disk-cleaner-actions.log"
+ACTION_LOG_FILE = Path.home() / ".disk-space-manager-actions.log"

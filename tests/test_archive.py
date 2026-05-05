@@ -120,12 +120,12 @@ class TestArchiveToLocalFolder:
         archived = target / "archived_files" / "sub" / "nested" / "data.dat"
         assert archived.exists()
 
-    def test_target_path_takes_precedence_over_ssd_path(self, tmp_path):
-        """--target-path is used when both --target-path and --ssd-path are given."""
+    def test_target_path_takes_precedence_over_external_path(self, tmp_path):
+        """--target-path is used when both archive target options are given."""
         src = tmp_path / "source"
         local_target = tmp_path / "local_dest"
-        ssd_target = tmp_path / "ssd_dest"
-        ssd_target.mkdir()
+        external_target = tmp_path / "external_dest"
+        external_target.mkdir()
         _create_old_large_file(src / "old_file.dat")
 
         runner = CliRunner()
@@ -133,27 +133,56 @@ class TestArchiveToLocalFolder:
             "--dry-run", "archive",
             "--path", str(src),
             "--target-path", str(local_target),
-            "--ssd-path", str(ssd_target),
+            "--external-path", str(external_target),
             "--age-months", "1",
         ])
         assert result.exit_code == 0, f"Failed: {result.output}\n{result.exception}"
         assert local_target.exists()
 
-    def test_ssd_path_still_works(self, tmp_path):
-        """Existing --ssd-path option continues to work."""
+    def test_external_path_works(self, tmp_path):
+        """--external-path can be used as the archive destination."""
         src = tmp_path / "source"
-        ssd_target = tmp_path / "ssd_dest"
-        ssd_target.mkdir()
+        external_target = tmp_path / "external_dest"
+        external_target.mkdir()
         _create_old_large_file(src / "old_file.dat")
 
         runner = CliRunner()
         result = runner.invoke(cli, [
             "--dry-run", "archive",
             "--path", str(src),
-            "--ssd-path", str(ssd_target),
+            "--external-path", str(external_target),
             "--age-months", "1",
         ])
         assert result.exit_code == 0, f"Failed: {result.output}\n{result.exception}"
+
+    def test_external_path_must_be_writable(self, tmp_path, monkeypatch):
+        """--external-path must point to a writable mounted destination."""
+        src = tmp_path / "source"
+        external_target = tmp_path / "external_dest"
+        external_target.mkdir()
+        _create_old_large_file(src / "old_file.dat")
+        monkeypatch.setattr("main._is_writable_path", lambda path: False)
+
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "--dry-run", "archive",
+            "--path", str(src),
+            "--external-path", str(external_target),
+            "--age-months", "1",
+        ])
+
+        assert result.exit_code == 1
+        assert "does not exist" in result.output
+        assert "writable" in result.output
+
+    def test_archive_help_uses_external_path_not_ssd_path(self):
+        """The breaking CLI cleanup exposes only the generic external path flag."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["archive", "--help"])
+
+        assert result.exit_code == 0, f"Failed: {result.output}\n{result.exception}"
+        assert "--external-path" in result.output
+        assert "--ssd-path" not in result.output
 
     def test_multiple_files_archived(self, tmp_path):
         """Multiple old files are all moved to the archive."""
@@ -292,8 +321,8 @@ class TestScannerExcludePaths:
         assert len(result["files"]) == 2
 
 
-class TestExecutorMoveToLocalFolder:
-    """Direct tests for ActionExecutor.move_files_to_ssd with local folders."""
+class TestExecutorArchiveToLocalFolder:
+    """Direct tests for ActionExecutor.archive_files with local folders."""
 
     def test_move_to_local_folder(self, tmp_path):
         src = tmp_path / "source"
@@ -306,7 +335,7 @@ class TestExecutorMoveToLocalFolder:
         files = [{"path": test_file, "size": test_file.stat().st_size}]
 
         executor = ActionExecutor(dry_run=False)
-        result = executor.move_files_to_ssd(files, target, src, confirm=False)
+        result = executor.archive_files(files, target, src, confirm=False)
 
         assert result["moved"] == 1
         assert result["failed"] == 0
@@ -324,7 +353,7 @@ class TestExecutorMoveToLocalFolder:
         files = [{"path": test_file, "size": test_file.stat().st_size}]
 
         executor = ActionExecutor(dry_run=False)
-        executor.move_files_to_ssd(files, target, src, confirm=False)
+        executor.archive_files(files, target, src, confirm=False)
 
         assert (target / "data.bin").read_bytes() == content
 
@@ -339,7 +368,7 @@ class TestExecutorMoveToLocalFolder:
         files = [{"path": test_file, "size": test_file.stat().st_size}]
 
         executor = ActionExecutor(dry_run=True)
-        result = executor.move_files_to_ssd(files, target, src, confirm=False)
+        result = executor.archive_files(files, target, src, confirm=False)
 
         assert result["moved"] == 1
         assert test_file.exists()
@@ -356,6 +385,6 @@ class TestExecutorMoveToLocalFolder:
         files = [{"path": test_file, "size": test_file.stat().st_size}]
 
         executor = ActionExecutor(dry_run=False)
-        executor.move_files_to_ssd(files, target, src, confirm=False)
+        executor.archive_files(files, target, src, confirm=False)
 
         assert (target / "a" / "b" / "deep.txt").exists()

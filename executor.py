@@ -103,13 +103,13 @@ class ActionExecutor:
             'total_size_formatted': format_size(total_size)
         }
     
-    def move_files_to_ssd(self, files: List[Dict], target_base: Path, 
-                         source_base: Path, confirm: bool = True) -> Dict:
-        """Move files to external SSD preserving directory structure.
+    def archive_files(self, files: List[Dict], target_base: Path,
+                      source_base: Path, confirm: bool = True) -> Dict:
+        """Archive files preserving directory structure.
         
         Args:
             files: List of file info dicts to move
-            target_base: Base directory on external SSD
+            target_base: Base archive directory
             source_base: Base directory on source (to preserve structure)
             confirm: Whether user confirmation is required (handled by caller)
         

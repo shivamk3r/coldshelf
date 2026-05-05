@@ -18,7 +18,15 @@ from utils import format_size
 _CACHE_DIR_COMPILED = [re.compile(fnmatch.translate(p)) for p in CACHE_DIRECTORY_PATTERNS]
 
 # Quick substring markers for early rejection before expensive regex
-_CACHE_DIR_MARKERS = ('Library/Caches', '.cache/', '/tmp/', 'var/tmp/', 'var/folders/', '/Cache/')
+_CACHE_DIR_MARKERS = (
+    'Library/Caches',
+    '.cache/',
+    '/tmp/',
+    'var/tmp/',
+    'var/folders/',
+    '.local/share/Trash/',
+    '/Cache/',
+)
 
 # Frozen set for O(1) extension lookup instead of O(n) list scan
 _CACHE_EXT_SET = frozenset(e.lower() for e in CACHE_FILE_EXTENSIONS)

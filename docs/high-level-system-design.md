@@ -2,10 +2,11 @@
 
 ## Purpose
 
-Mac Disk Space Manager is a local macOS command-line tool for understanding and
-reducing disk usage. It scans a selected filesystem tree, reports disk usage,
-identifies removable cache-like files, and archives old large files to an
-external SSD or local folder while preserving the original directory structure.
+Disk Space Manager is a local Unix-like command-line tool for understanding and
+reducing disk usage on macOS and Linux. It scans a selected filesystem tree,
+reports disk usage, identifies removable cache-like files, and archives old
+large files to an external drive or local folder while preserving the original
+directory structure.
 
 The system is intentionally conservative. Destructive operations are separated
 from analysis, support dry-run previews, require explicit confirmation during
@@ -13,18 +14,18 @@ normal runs, and record action logs for review.
 
 ## Users and Workflows
 
-The primary user is a macOS user or maintainer running the CLI directly from a
-terminal. The default scan target is the user's home directory, but all commands
-accept a narrower `--path` for safer inspection and validation.
+The primary user is a macOS or Linux user running the CLI directly from a
+terminal. The default scan target is the user's home directory, but all
+commands accept a narrower `--path` for safer inspection and validation.
 
 The main workflows are:
 
-- Analyze disk usage with `analyze` to understand file counts, total size, large
-  files, large directories, and top file extensions.
+- Analyze disk usage with `analyze` to understand file counts, total size,
+  large files, large directories, and top file extensions.
 - Preview and remove cache-like files with `clean`, using dry-run mode when the
   user wants a non-mutating check.
 - Archive old large files with `archive`, using either a local archive folder,
-  a specified external SSD path, or auto-detected external storage.
+  a specified external drive path, or auto-detected external storage.
 - Generate a comprehensive read-only report with `full-report`, including scan
   progress, cache candidates, old-file candidates, and potential savings.
 
@@ -36,10 +37,11 @@ with:
 
 - The local filesystem through `os.scandir`, stat calls, copy, delete, and
   symlink operations.
-- macOS volume information through `diskutil`, with a `/Volumes` fallback.
+- Unix-like mount information through macOS `diskutil`, `/Volumes`, or Linux
+  `/proc/self/mountinfo`.
 - The terminal through Click command parsing and Rich tables, panels, and
   progress indicators.
-- A local action log at `~/.mac-disk-cleaner-actions.log`.
+- A local action log at `~/.disk-space-manager-actions.log`.
 
 ## Major Subsystems
 
@@ -59,8 +61,8 @@ epoch timestamps instead of converting every timestamp into `datetime` objects.
 ### Analyzer
 
 `analyzer.py` classifies scanned file dictionaries. It detects cache candidates
-using configured directory patterns, extensions, and filename markers. It
-detects old files using access time and a minimum size threshold. It also
+using configured Unix-like directory patterns, extensions, and filename markers.
+It detects old files using access time and a minimum size threshold. It also
 calculates summary statistics and potential space savings.
 
 ### Action Executor
@@ -72,15 +74,18 @@ the original file, and creating a symlink at the original path.
 
 ### External Drive Detection
 
-`ssd_detector.py` discovers mounted volumes through `diskutil` and identifies
-writable external drives. The archive command uses this only when the user has
-not supplied `--target-path` or `--ssd-path`.
+`drive_detector.py` discovers writable mounted external drives. On macOS it
+uses `diskutil` with a `/Volumes` fallback. On Linux it parses
+`/proc/self/mountinfo`, ignores pseudo/system filesystems, and considers
+writable non-root mounts under common external-drive locations such as
+`/media`, `/mnt`, and `/run/media`. The archive command uses this subsystem only
+when the user has not supplied `--target-path` or `--external-path`.
 
 ### Progress Estimation
 
 `progress_estimator.py` turns scanner progress snapshots into determinate Rich
-progress values and heuristic ETA text for `full-report`, where the final number
-of files is unknown until traversal finishes.
+progress values and heuristic ETA text for `full-report`, where the final
+number of files is unknown until traversal finishes.
 
 ## Data Flow
 
@@ -90,7 +95,7 @@ The core data flow is:
    archive target.
 2. `DiskScanner.scan()` returns a dictionary containing `files`, `directories`,
    `total_scanned`, and `errors`.
-3. `FileAnalyzer` consumes the scanned file dictionaries to produce usage
+3. `FileAnalyzer` consumes scanned file dictionaries to produce usage
    summaries, cache candidates, old-file candidates, and savings estimates.
 4. Read-only commands render those results directly.
 5. Mutating commands show summaries, request confirmation unless in dry-run
@@ -147,10 +152,11 @@ The profiling workflow in `scripts/profile_report_generation.py` owns
 
 ## Operating Boundaries
 
-The system is built for macOS and assumes Python 3.9 or newer. It depends on
-Click and Rich at runtime, pytest for tests, and `uv` for the documented
-development workflow. External SSD auto-detection depends on macOS tooling and
-falls back to scanning `/Volumes` when `diskutil` is unavailable.
+The system targets Unix-like filesystems on macOS and Linux and assumes Python
+3.9 or newer. It depends on Click and Rich at runtime, pytest for tests, and
+`uv` for the documented development workflow. External-drive auto-detection is
+best-effort and can always be bypassed with `--target-path` or
+`--external-path`.
 
 The tool does not guarantee it can inspect every file. Filesystem permissions,
 system protections, broken symlinks, unmounted drives, and concurrent file

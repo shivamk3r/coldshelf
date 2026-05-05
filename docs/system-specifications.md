@@ -2,15 +2,17 @@
 
 ## Supported Platform and Dependencies
 
-Mac Disk Space Manager is specified as a local CLI application for macOS.
+Disk Space Manager is specified as a local CLI application for Unix-like
+systems, with supported workflows on macOS and Linux.
 
 Runtime requirements:
 
 - Python 3.9 or newer.
 - Click for CLI parsing.
 - Rich for terminal output.
-- macOS filesystem semantics and, for external-drive auto-detection,
-  `diskutil` or mounted volumes under `/Volumes`.
+- Unix-like filesystem semantics, including symlink support.
+- macOS `diskutil` or `/Volumes` for macOS external-drive auto-detection.
+- Linux `/proc/self/mountinfo` for Linux external-drive auto-detection.
 
 Development and verification use `uv` and pytest.
 
@@ -62,19 +64,20 @@ Options:
 
 - `--path PATH`: directory to scan; defaults to the user's home directory.
 - `--target-path PATH`: local folder to use as archive destination.
-- `--ssd-path PATH`: mounted external SSD path to use as archive destination.
+- `--external-path PATH`: mounted external drive path to use as archive
+  destination.
 - `--age-months N`: old-file threshold in months; defaults to 6.
 
 Target selection:
 
 1. `--target-path`
-2. `--ssd-path`
-3. Auto-detected external SSD
+2. `--external-path`
+3. Auto-detected external drive
 
 Behavior:
 
 - Creates `--target-path` when it does not exist.
-- Fails if `--ssd-path` is supplied and does not exist.
+- Fails if `--external-path` is supplied and does not exist or is not writable.
 - Fails if no target can be resolved.
 - Uses `<archive target>/archived_files` as the archive base.
 - Excludes the archive target from scanning, including when the archive target
@@ -139,7 +142,7 @@ Progress rules:
 
 Cache candidates are files matching at least one of:
 
-- Configured cache directory patterns.
+- Configured Unix-like cache directory patterns.
 - Configured cache file extensions.
 - Cache-like filename substrings.
 
@@ -160,6 +163,27 @@ Old-file results are sorted by size descending.
 
 Potential savings are reported separately for cache candidates and old-file
 candidates, then combined.
+
+## External Drive Detection Specification
+
+`drive_detector.py` exposes:
+
+- `get_mounted_volumes()`: returns mounted volume dictionaries for the current
+  platform.
+- `detect_external_drives()`: filters mounted volumes to writable external
+  drive candidates.
+- `select_external_drive(manual_path=None)`: validates a manual path or returns
+  the first auto-detected drive.
+
+macOS detection uses `diskutil` first and falls back to directories mounted
+under `/Volumes`.
+
+Linux detection parses `/proc/self/mountinfo`, ignores pseudo/system
+filesystems, skips the root filesystem, and considers writable non-root mounts
+under `/media`, `/mnt`, and `/run/media` external-drive candidates.
+
+Manual `--external-path` validation requires that the path exists and is
+writable.
 
 ## Execution and Logging Specification
 
@@ -184,7 +208,7 @@ Archive behavior:
 Logging behavior:
 
 - Log entries are kept in memory for the executor instance.
-- Log entries are appended to `~/.mac-disk-cleaner-actions.log`.
+- Log entries are appended to `~/.disk-space-manager-actions.log`.
 - Log entries include timestamp, action type, source, optional target, size,
   success or failure, optional error text, and dry-run status.
 - Failure to write the log file must not abort the underlying operation.
@@ -209,8 +233,11 @@ The current test suite covers these behavioral invariants:
 
 - `archive --target-path` works with local folders.
 - Missing local archive target directories are created.
-- `--target-path` takes precedence over `--ssd-path`.
-- Existing `--ssd-path` behavior continues to work.
+- `--target-path` takes precedence over `--external-path`.
+- `--external-path` works as a manual mounted-drive destination.
+- The removed `--ssd-path` flag no longer appears in archive help.
+- Linux mountinfo parsing ignores pseudo/system filesystems.
+- External-drive detection filters to writable external paths.
 - Multiple old files can be archived in one run.
 - Directory structure is preserved under `archived_files`.
 - Archive targets inside the scan path are excluded from scanning.
