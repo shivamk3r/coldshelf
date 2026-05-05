@@ -2,90 +2,126 @@
 
 ## Overview
 
-The repository is a small Python CLI organized around a pipeline:
+Disk Space Manager is packaged as a Python CLI under `src/disk_space_manager`.
+The repository root stays small: `main.py` is only a compatibility shim for
+`uv run python main.py ...`, while the preferred interfaces are:
 
-```text
-Click command -> DiskScanner -> FileAnalyzer -> Rich output
-                                |
-                                v
-                         ActionExecutor
+```bash
+uv run disk-space-manager ...
+uv run python -m disk_space_manager ...
 ```
 
-Most modules are intentionally flat and dependency-light. `main.py` coordinates
-the user workflows, while scanning, analysis, execution, drive detection, and
-progress estimation live in separate modules.
+The runtime pipeline is still intentionally direct:
 
-## Runtime Modules
+```text
+Click command -> workflow -> DiskScanner -> FileAnalyzer -> Rich UI
+                                 |
+                                 v
+                          ActionExecutor
+```
 
-### `main.py`
+The architectural goal is separation of concerns without adding heavy
+frameworks. Click declarations, workflow sequencing, terminal presentation,
+target resolution, scanning, analysis, and file mutation each have clear module
+ownership.
 
-`main.py` is the CLI entry point. It defines the Click command group, the global
-`--dry-run` option, and the commands `analyze`, `clean`, `archive`, and
-`full-report`.
+## Runtime Package
 
-Primary responsibilities:
+### `src/disk_space_manager/cli.py`
 
-- Resolve command options and defaults.
-- Create `DiskScanner`, `FileAnalyzer`, and `ActionExecutor` instances.
-- Render Rich tables, summaries, and progress bars.
-- Prompt for confirmation before destructive actions.
-- Select archive targets using the precedence `--target-path`, then
-  `--external-path`, then auto-detected external drive.
-- Exclude archive targets from scans when archiving.
+Defines the Click command group, global `--dry-run` flag, and command options
+for `analyze`, `clean`, `archive`, and `full-report`.
 
-The helper display functions in this file keep command bodies readable:
-`show_disk_usage_analysis`, `show_cache_analysis`, and
-`show_old_files_analysis`.
+This module should stay thin. It parses CLI inputs and delegates to
+`workflows.py`; it should not contain scanning, rendering, archive selection, or
+file-mutation logic.
 
-### `scanner.py`
+### `src/disk_space_manager/workflows.py`
 
-`scanner.py` owns filesystem traversal. `DiskScanner.scan()` returns:
+Coordinates command behavior:
 
-- `files`: list of file dictionaries with `path`, `size`, `atime`, `mtime`, and
+- Resolves the scan path, defaulting to `Path.home()`.
+- Creates `DiskScanner`, `FileAnalyzer`, and `ActionExecutor` instances.
+- Sequences scan, analysis, preview, confirmation, and execution steps.
+- Keeps destructive operations behind confirmation unless dry-run mode is
+  active.
+- Excludes archive targets from archive scans and skips symlink archive
+  candidates.
+
+Workflow functions are command-sized orchestration units. Domain details should
+stay in scanner, analyzer, executor, or archive target modules.
+
+### `src/disk_space_manager/ui.py`
+
+Owns terminal presentation and prompts:
+
+- Header and dry-run banner.
+- Rich tables, summaries, progress bars, and scan ETA display.
+- Cache and old-file preview rendering.
+- Confirmation prompts for destructive command paths.
+- Final execution summaries and action-log location display.
+
+No filesystem mutation should happen in this module.
+
+### `src/disk_space_manager/archive_targets.py`
+
+Resolves archive destinations and returns an `ArchiveTarget` dataclass with:
+
+- `root`: selected target directory.
+- `archive_base`: `<root>/archived_files`.
+- `label`: user-facing target label.
+- `source`: target source, such as `target_path`, `external_path`, or
+  `auto_detected`.
+
+Target precedence is deliberate and must remain:
+
+1. `--target-path`
+2. `--external-path`
+3. Auto-detected external drive
+
+### `src/disk_space_manager/scanner.py`
+
+Owns filesystem traversal. `DiskScanner.scan()` returns:
+
+- `files`: list of dictionaries with `path`, `size`, `atime`, `mtime`, and
   `ctime`.
-- `directories`: mapping of directory path strings to byte totals for files
-  directly encountered in that directory.
-- `total_scanned`: total number of files in the result.
+- `directories`: mapping of directory path strings to byte totals.
+- `total_scanned`: total number of scanned files.
 - `errors`: non-fatal scan errors.
 
 Important implementation details:
 
-- Root entries are inspected with `os.scandir`.
-- Top-level subdirectories are scanned in parallel worker threads.
-- `_scan_recursive` avoids following directory symlinks.
-- Exclusion prefixes are computed once from configured system exclusions, user
-  home exclusions, and caller-supplied `exclude_paths`.
-- Progress can be reported through a simple file-count callback or a detailed
-  `ScanProgress` callback.
-- Worker threads batch `_ScanProgressDelta` events through a queue.
+- Uses `os.scandir` and `DirEntry.stat()` for low per-file overhead.
+- Scans top-level subdirectories in worker threads.
+- Does not follow directory symlinks.
+- Precomputes configured and caller-supplied exclusion prefixes once per scan.
+- Reports simple file-count progress and detailed `ScanProgress` snapshots.
+- Batches worker progress events to avoid excessive cross-thread chatter.
 
-`get_largest_directories()` and `get_largest_files()` use `heapq.nlargest` over
-the scanner's in-memory results.
+`get_largest_directories()` and `get_largest_files()` operate on the scanner's
+in-memory results after a scan.
 
-### `analyzer.py`
+### `src/disk_space_manager/analyzer.py`
 
-`analyzer.py` contains `FileAnalyzer`, which operates on scanner file
-dictionaries.
+Contains `FileAnalyzer`, which operates on scanner file dictionaries.
 
 Primary responsibilities:
 
-- Detect cache candidates using configured path patterns, extension checks, and
-  filename markers.
-- Detect old files using access time, configured age threshold, and minimum file
-  size.
-- Add result-specific metadata such as cache `reason`, old-file `days_old`,
+- Detect cache candidates using configured directory patterns, extension
+  checks, and filename markers.
+- Detect old files using access time, configured age threshold, and minimum
+  file size.
+- Add result metadata such as cache `reason`, old-file `days_old`,
   `age_category`, and display-ready `accessed` datetime.
 - Summarize total size, file count, average file size, and top extensions.
 - Calculate potential space savings for cache deletion and old-file archiving.
 
-Performance-oriented constants are prepared at import time: compiled cache
-directory regexes, quick substring markers, frozen extension sets, and filename
-substrings.
+Performance-oriented constants are prepared at import time.
 
-### `executor.py`
+### `src/disk_space_manager/executor.py`
 
-`executor.py` contains `ActionExecutor`, the only module that performs
-destructive user-file operations.
+Contains `ActionExecutor`, the only module that performs destructive user-file
+operations.
 
 Primary responsibilities:
 
@@ -95,39 +131,34 @@ Primary responsibilities:
 - Delete files through `utils.safe_delete`.
 - Archive files into a target base directory while preserving paths relative to
   the scan root.
-- Copy file metadata with `shutil.copy2`, unlink the original file, and create a
-  symlink at the original path that points to the archived copy.
+- Copy file metadata with `shutil.copy2`, unlink the original file, and create
+  a symlink at the original path pointing to the archived copy.
 
-The `confirm` parameters on executor methods are currently caller-facing API
-shape; confirmation is handled in `main.py` before the executor is called.
+Confirmation is handled before executor methods are called. The executor keeps
+the actual mutation and action-log behavior centralized.
 
-### `drive_detector.py`
+### `src/disk_space_manager/drive_detector.py`
 
-`drive_detector.py` detects writable external volumes for archive targets.
+Detects writable external volumes:
 
-Primary responsibilities:
+- macOS uses `diskutil` and falls back to `/Volumes`.
+- Linux parses `/proc/self/mountinfo`, skips pseudo/system filesystems, and
+  considers common mount roots such as `/media`, `/mnt`, and `/run/media`.
+- Manual external paths are validated for existence and writability.
 
-- List mounted volumes for the current platform.
-- On macOS, use `diskutil` and fall back to `/Volumes` iteration.
-- On Linux, parse `/proc/self/mountinfo`, skip pseudo/system filesystems, and
-  consider common user mount roots such as `/media`, `/mnt`, and `/run/media`.
-- Filter to writable external drive candidates.
-- Return the first detected external drive when no manual path is supplied.
+### `src/disk_space_manager/progress_estimator.py`
 
-### `progress_estimator.py`
+Converts `ScanProgress` snapshots into `ScanEstimate` objects suitable for
+Rich's determinate progress bars.
 
-`progress_estimator.py` converts `ScanProgress` snapshots into `ScanEstimate`
-objects suitable for Rich's determinate progress bars.
+The estimator starts with a placeholder total, estimates total work from the
+ratio of completed to discovered directories, smooths changes, keeps visible
+remaining work while directories remain, and snaps to the actual total when the
+scan finishes.
 
-The estimator starts with a placeholder total while there is too little
-directory information, then estimates total work from the ratio of completed to
-discovered directories. It smooths increases and decreases, keeps a small
-amount of visible remaining work while directories remain, and snaps to the
-actual total when the scan finishes.
+### `src/disk_space_manager/config.py`
 
-### `config.py`
-
-`config.py` contains repository-wide constants:
+Contains repository-wide constants:
 
 - Default old-file age threshold.
 - Unix-like cache directory patterns.
@@ -136,27 +167,24 @@ actual total when the scan finishes.
 - Minimum file size for archive candidates.
 - Action log path.
 
-Changes to these constants can materially affect safety, scan scope, and user
-trust, so they should be paired with focused tests.
+Changes here can materially affect safety, scan scope, and user trust, so pair
+them with focused tests.
 
-### `utils.py`
+### `src/disk_space_manager/utils.py`
 
-`utils.py` contains shared helpers for formatting sizes, reading file metadata,
-checking excluded paths, calculating directory sizes, checking available space,
-creating symlinks or copies, safe deletion, and computing archive target paths
-that preserve source-relative structure.
-
-Some helpers support current command paths directly, while others are available
-for older or future workflows.
+Contains shared helpers for size formatting, metadata reads, excluded path
+checks, directory sizing, available-space checks, safe deletion, link/copy
+helpers, and archive target path construction.
 
 ## Command Flows
 
 ### `analyze`
 
-1. Resolve scan path, defaulting to `Path.home()`.
-2. Scan the filesystem.
-3. Analyze disk usage.
-4. Render summary tables, largest directories, and largest files.
+1. `cli.py` parses `--path`.
+2. `workflows.run_analyze()` resolves the scan path.
+3. `DiskScanner` scans the filesystem.
+4. `FileAnalyzer` computes disk usage statistics.
+5. `ui.py` renders summary tables, largest directories, and largest files.
 
 This command is read-only.
 
@@ -168,7 +196,7 @@ This command is read-only.
 4. Render preview and savings summary.
 5. Confirm deletion unless dry-run mode is active.
 6. Delete candidates through `ActionExecutor.delete_files`.
-7. Render execution summary and action log path when actions were logged.
+7. Render execution summary and action-log path when actions were logged.
 
 ### `archive`
 
@@ -182,9 +210,6 @@ This command is read-only.
 8. Confirm move unless dry-run mode is active.
 9. Archive candidates through `ActionExecutor.archive_files`.
 
-Target precedence is deliberate: `--target-path` wins over `--external-path`,
-and manual paths win over auto-detection.
-
 ### `full-report`
 
 1. Resolve scan path and age threshold.
@@ -197,34 +222,27 @@ This command is read-only.
 
 ## Tests and Profiling
 
-The test suite uses pytest and Click's `CliRunner`. It focuses on:
-
-- Archive behavior for local folders.
-- Archive target precedence.
-- Manual external path behavior.
-- Excluding archive targets inside scanned trees.
-- Repeated archive runs.
-- Direct executor archive behavior.
-- Linux external-drive mount parsing and writable-drive filtering.
-- Scanner simple and detailed progress callbacks.
-- Analyzer progress callbacks.
-- Ensuring progress callbacks do not change analysis results.
-- `full-report` command smoke coverage.
-- Profiling helper safety and cleanup behavior.
+The test suite uses pytest and Click's `CliRunner`. It covers archive behavior,
+target precedence, archive target exclusions, repeated archive runs, direct
+executor behavior, Linux drive detection, scanner and analyzer progress,
+`full-report` smoke coverage, and profiling helper safety.
 
 `scripts/profile_report_generation.py` is the performance harness. It owns and
 recreates `downloads/benchmark`, generates deterministic sparse-file datasets,
-runs `full-report`, and removes the benchmark tree unless `--keep-benchmark` is
-specified.
+runs `python -m disk_space_manager full-report`, and removes the benchmark tree
+unless `--keep-benchmark` is specified.
 
 ## Extension Points
 
-When adding features, preserve the existing module boundaries:
+When adding features:
 
-- Add new CLI orchestration and presentation in `main.py`.
+- Add Click option declarations in `cli.py`.
+- Add command sequencing in `workflows.py`.
+- Add terminal output and prompts in `ui.py`.
 - Keep filesystem traversal concerns in `scanner.py`.
 - Put classification and summary logic in `analyzer.py`.
 - Put file mutations only in `executor.py`.
+- Put archive destination rules in `archive_targets.py`.
 - Put external-drive discovery in `drive_detector.py`.
 - Update `config.py` for default thresholds, patterns, and exclusions.
 - Add tests using temporary paths and `CliRunner`; avoid broad real filesystem

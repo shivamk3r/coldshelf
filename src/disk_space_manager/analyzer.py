@@ -6,13 +6,13 @@ import fnmatch
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Callable
 
-from config import (
+from .config import (
     DEFAULT_AGE_THRESHOLD,
     CACHE_DIRECTORY_PATTERNS,
     CACHE_FILE_EXTENSIONS,
     MIN_FILE_SIZE_TO_MOVE,
 )
-from utils import format_size
+from .utils import format_size
 
 # Pre-compile cache directory regex patterns (avoids per-file fnmatch overhead)
 _CACHE_DIR_COMPILED = [re.compile(fnmatch.translate(p)) for p in CACHE_DIRECTORY_PATTERNS]

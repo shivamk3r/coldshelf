@@ -166,7 +166,7 @@ candidates, then combined.
 
 ## External Drive Detection Specification
 
-`drive_detector.py` exposes:
+`src/disk_space_manager/drive_detector.py` exposes:
 
 - `get_mounted_volumes()`: returns mounted volume dictionaries for the current
   platform.
@@ -263,7 +263,9 @@ uv run pytest
 Useful manual checks:
 
 ```bash
+uv run disk-space-manager full-report --path tests --age-months 6
 uv run python main.py full-report --path tests --age-months 6
+uv run python -m disk_space_manager full-report --path tests --age-months 6
 uv run python scripts/profile_report_generation.py --file-count 10000 --max-bytes 50000000
 ```
 

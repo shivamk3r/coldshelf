@@ -47,60 +47,72 @@ with:
 
 ### CLI and Presentation
 
-`main.py` owns the Click command group and user-facing command flows. It creates
-scanner, analyzer, and executor objects, renders Rich output, displays previews,
-and gates destructive operations behind confirmation prompts.
+`src/disk_space_manager/cli.py` owns the Click command group and command option
+declarations. It delegates work to `workflows.py`, keeping the command layer
+thin. `ui.py` owns Rich output, progress displays, summaries, and confirmation
+prompts. The root `main.py` is only a checkout compatibility shim.
+
+### Workflow Orchestration
+
+`workflows.py` creates scanner, analyzer, and executor objects, sequences the
+read-only and mutating command flows, and gates destructive operations behind
+confirmation prompts. `archive_targets.py` resolves archive destinations using
+the precedence `--target-path`, then `--external-path`, then auto-detected
+external drive.
 
 ### Filesystem Scanner
 
-`scanner.py` traverses a root path and returns file metadata plus directory size
-totals. It is optimized for large trees by using `os.scandir`, scanning
-top-level subdirectories in parallel, batching progress events, and storing raw
-epoch timestamps instead of converting every timestamp into `datetime` objects.
+`src/disk_space_manager/scanner.py` traverses a root path and returns file
+metadata plus directory size totals. It is optimized for large trees by using
+`os.scandir`, scanning top-level subdirectories in parallel, batching progress
+events, and storing raw epoch timestamps instead of converting every timestamp
+into `datetime` objects.
 
 ### Analyzer
 
-`analyzer.py` classifies scanned file dictionaries. It detects cache candidates
-using configured Unix-like directory patterns, extensions, and filename markers.
-It detects old files using access time and a minimum size threshold. It also
-calculates summary statistics and potential space savings.
+`src/disk_space_manager/analyzer.py` classifies scanned file dictionaries. It
+detects cache candidates using configured Unix-like directory patterns,
+extensions, and filename markers. It detects old files using access time and a
+minimum size threshold. It also calculates summary statistics and potential
+space savings.
 
 ### Action Executor
 
-`executor.py` performs deletion and archive operations. It handles dry-run
-accounting, writes action log entries, deletes cache files through shared safe
-delete helpers, and archives old files by copying them to the target, deleting
-the original file, and creating a symlink at the original path.
+`src/disk_space_manager/executor.py` performs deletion and archive operations.
+It handles dry-run accounting, writes action log entries, deletes cache files
+through shared safe delete helpers, and archives old files by copying them to
+the target, deleting the original file, and creating a symlink at the original
+path.
 
 ### External Drive Detection
 
-`drive_detector.py` discovers writable mounted external drives. On macOS it
-uses `diskutil` with a `/Volumes` fallback. On Linux it parses
-`/proc/self/mountinfo`, ignores pseudo/system filesystems, and considers
+`src/disk_space_manager/drive_detector.py` discovers writable mounted external
+drives. On macOS it uses `diskutil` with a `/Volumes` fallback. On Linux it
+parses `/proc/self/mountinfo`, ignores pseudo/system filesystems, and considers
 writable non-root mounts under common external-drive locations such as
 `/media`, `/mnt`, and `/run/media`. The archive command uses this subsystem only
 when the user has not supplied `--target-path` or `--external-path`.
 
 ### Progress Estimation
 
-`progress_estimator.py` turns scanner progress snapshots into determinate Rich
-progress values and heuristic ETA text for `full-report`, where the final
-number of files is unknown until traversal finishes.
+`src/disk_space_manager/progress_estimator.py` turns scanner progress snapshots
+into determinate Rich progress values and heuristic ETA text for `full-report`,
+where the final number of files is unknown until traversal finishes.
 
 ## Data Flow
 
 The core data flow is:
 
-1. The CLI resolves options such as scan path, age threshold, dry-run state, and
-   archive target.
+1. The CLI parses options such as scan path, age threshold, and dry-run state.
 2. `DiskScanner.scan()` returns a dictionary containing `files`, `directories`,
    `total_scanned`, and `errors`.
 3. `FileAnalyzer` consumes scanned file dictionaries to produce usage
    summaries, cache candidates, old-file candidates, and savings estimates.
-4. Read-only commands render those results directly.
-5. Mutating commands show summaries, request confirmation unless in dry-run
+4. `ui.py` renders read-only command results directly.
+5. Mutating workflows show summaries, request confirmation unless in dry-run
    mode, then call `ActionExecutor`.
-6. `ActionExecutor` records each intended or completed action in memory and in
+6. `archive_targets.py` resolves archive destinations before archive scans.
+7. `ActionExecutor` records each intended or completed action in memory and in
    the action log.
 
 The scanner's file dictionaries are intentionally lightweight. During scanning

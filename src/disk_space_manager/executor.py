@@ -5,8 +5,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional, Callable
 
-from config import ACTION_LOG_FILE
-from utils import safe_delete, preserve_structure_move, format_size
+from .config import ACTION_LOG_FILE
+from .utils import safe_delete, preserve_structure_move, format_size
 
 
 class ActionExecutor:

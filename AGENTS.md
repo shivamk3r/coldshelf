@@ -16,26 +16,34 @@ behavior, and action logging intact.
    and architecture.
 3. Read `pyproject.toml`, `uv.lock`, and `requirements.txt` for dependency and
    test setup.
-4. Read `config.py` before changing scan exclusions, cache patterns,
-   thresholds, or action-log behavior.
+4. Read `src/disk_space_manager/config.py` before changing scan exclusions,
+   cache patterns, thresholds, or action-log behavior.
 5. Read the relevant implementation module and matching tests before editing:
-   `main.py`, `scanner.py`, `analyzer.py`, `executor.py`,
-   `drive_detector.py`, `utils.py`, `tests/`, and `docs/`.
+   `src/disk_space_manager/cli.py`, `workflows.py`, `ui.py`, `scanner.py`,
+   `analyzer.py`, `executor.py`, `drive_detector.py`, `utils.py`, `tests/`,
+   and `docs/`.
 6. Use `.agents/skills/` and `.agents/commands/` for shared agent assets. The
    `.claude`, `.cursor`, and `.codex` folders only expose compatibility links.
 
 ## Repo Directory Map
 
-- `main.py` - Click CLI entry point and Rich terminal presentation.
-- `scanner.py` - High-performance filesystem scanning with `os.scandir` and a
-  thread pool.
-- `analyzer.py` - Cache detection, old-file detection, and disk usage
-  summaries.
-- `executor.py` - Delete/archive operations, symlink creation, and action logs.
-- `drive_detector.py` - Unix-like external-drive detection using platform
-  tools and mount metadata.
-- `config.py` - Defaults, cache patterns, exclusions, thresholds, and log path.
-- `utils.py` - Shared helpers such as size formatting and safe file operations.
+- `main.py` - Compatibility shim for `uv run python main.py ...`.
+- `src/disk_space_manager/cli.py` - Click command declarations.
+- `src/disk_space_manager/workflows.py` - Command orchestration.
+- `src/disk_space_manager/ui.py` - Rich terminal presentation and prompts.
+- `src/disk_space_manager/archive_targets.py` - Archive target resolution.
+- `src/disk_space_manager/scanner.py` - High-performance filesystem scanning
+  with `os.scandir` and a thread pool.
+- `src/disk_space_manager/analyzer.py` - Cache detection, old-file detection,
+  and disk usage summaries.
+- `src/disk_space_manager/executor.py` - Delete/archive operations, symlink
+  creation, and action logs.
+- `src/disk_space_manager/drive_detector.py` - Unix-like external-drive
+  detection using platform tools and mount metadata.
+- `src/disk_space_manager/config.py` - Defaults, cache patterns, exclusions,
+  thresholds, and log path.
+- `src/disk_space_manager/utils.py` - Shared helpers such as size formatting
+  and safe file operations.
 - `tests/` - Pytest coverage for CLI behavior, archiving, drive detection,
   progress callbacks, and profiling helpers.
 - `scripts/profile_report_generation.py` - Optional performance profiler that
@@ -49,7 +57,7 @@ behavior, and action logging intact.
 
 - Use `uv sync` to set up dependencies.
 - Run CLI commands through `uv run`, for example
-  `uv run python main.py full-report --path tests`.
+  `uv run disk-space-manager full-report --path tests`.
 - Keep changes narrow and aligned with the current module boundaries. Avoid new
   dependencies unless they are clearly justified.
 - Preserve the CLI's safety model: destructive operations need confirmation,
@@ -74,7 +82,7 @@ Use these as needed:
 
 ```bash
 uv sync
-uv run python main.py full-report --path tests --age-months 6
+uv run disk-space-manager full-report --path tests --age-months 6
 uv run python scripts/profile_report_generation.py --file-count 10000 --max-bytes 50000000
 ```
 

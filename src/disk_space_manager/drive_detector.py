@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
-from utils import get_available_space
+from .utils import get_available_space
 
 
 LINUX_EXTERNAL_MOUNT_PREFIXES = (

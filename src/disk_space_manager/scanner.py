@@ -9,7 +9,7 @@ from collections import defaultdict
 from typing import List, Dict, Optional, Callable
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 
-from config import EXCLUDED_DIRECTORIES, USER_EXCLUDED_DIRECTORIES
+from .config import EXCLUDED_DIRECTORIES, USER_EXCLUDED_DIRECTORIES
 
 
 ROOT_PROGRESS_BATCH_SIZE = 100

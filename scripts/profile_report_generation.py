@@ -285,7 +285,8 @@ def generate_benchmark_tree(
 def run_report(benchmark_dir: Path, age_months: int, repo_root: Path = REPO_ROOT) -> None:
     command = [
         sys.executable,
-        str(repo_root / "main.py"),
+        "-m",
+        "disk_space_manager",
         "full-report",
         "--path",
         str(benchmark_dir),

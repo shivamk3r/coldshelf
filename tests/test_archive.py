@@ -9,9 +9,9 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from main import cli
-from scanner import DiskScanner
-from executor import ActionExecutor
+from disk_space_manager.cli import cli
+from disk_space_manager.scanner import DiskScanner
+from disk_space_manager.executor import ActionExecutor
 
 
 def _create_old_large_file(path, size_bytes=1024 * 1024 + 1, age_days=200):
@@ -33,8 +33,8 @@ class TestArchiveToLocalFolder:
 
     @pytest.fixture(autouse=True)
     def _clear_excluded_dirs(self, monkeypatch):
-        monkeypatch.setattr("scanner.EXCLUDED_DIRECTORIES", [])
-        monkeypatch.setattr("scanner.USER_EXCLUDED_DIRECTORIES", [])
+        monkeypatch.setattr("disk_space_manager.scanner.EXCLUDED_DIRECTORIES", [])
+        monkeypatch.setattr("disk_space_manager.scanner.USER_EXCLUDED_DIRECTORIES", [])
 
     def test_dry_run_with_target_path(self, tmp_path):
         """Dry-run archive to local folder reports files but doesn't move them."""
@@ -76,7 +76,7 @@ class TestArchiveToLocalFolder:
         _create_old_large_file(src / "old_report.dat", age_days=200)
 
         runner = CliRunner()
-        with patch("main.Confirm.ask", return_value=True):
+        with patch("disk_space_manager.ui.Confirm.ask", return_value=True):
             result = runner.invoke(cli, [
                 "archive",
                 "--path", str(src),
@@ -109,7 +109,7 @@ class TestArchiveToLocalFolder:
         _create_old_large_file(src / "sub" / "nested" / "data.dat", age_days=200)
 
         runner = CliRunner()
-        with patch("main.Confirm.ask", return_value=True):
+        with patch("disk_space_manager.ui.Confirm.ask", return_value=True):
             result = runner.invoke(cli, [
                 "archive",
                 "--path", str(src),
@@ -161,7 +161,7 @@ class TestArchiveToLocalFolder:
         external_target = tmp_path / "external_dest"
         external_target.mkdir()
         _create_old_large_file(src / "old_file.dat")
-        monkeypatch.setattr("main._is_writable_path", lambda path: False)
+        monkeypatch.setattr("disk_space_manager.archive_targets.is_writable_path", lambda path: False)
 
         runner = CliRunner()
         result = runner.invoke(cli, [
@@ -193,7 +193,7 @@ class TestArchiveToLocalFolder:
         _create_old_large_file(src / "c.dat", age_days=250)
 
         runner = CliRunner()
-        with patch("main.Confirm.ask", return_value=True):
+        with patch("disk_space_manager.ui.Confirm.ask", return_value=True):
             result = runner.invoke(cli, [
                 "archive",
                 "--path", str(src),
@@ -219,7 +219,7 @@ class TestArchiveToLocalFolder:
         _create_old_large_file(prev, age_days=400)
 
         runner = CliRunner()
-        with patch("main.Confirm.ask", return_value=True):
+        with patch("disk_space_manager.ui.Confirm.ask", return_value=True):
             result = runner.invoke(cli, [
                 "archive",
                 "--path", str(src),
@@ -245,7 +245,7 @@ class TestArchiveToLocalFolder:
         runner = CliRunner()
 
         # First archive run
-        with patch("main.Confirm.ask", return_value=True):
+        with patch("disk_space_manager.ui.Confirm.ask", return_value=True):
             r1 = runner.invoke(cli, [
                 "archive",
                 "--path", str(src),
@@ -260,7 +260,7 @@ class TestArchiveToLocalFolder:
         )
 
         # Second archive run — nothing new should be archived
-        with patch("main.Confirm.ask", return_value=True):
+        with patch("disk_space_manager.ui.Confirm.ask", return_value=True):
             r2 = runner.invoke(cli, [
                 "archive",
                 "--path", str(src),
@@ -280,8 +280,8 @@ class TestScannerExcludePaths:
 
     @pytest.fixture(autouse=True)
     def _clear_excluded_dirs(self, monkeypatch):
-        monkeypatch.setattr("scanner.EXCLUDED_DIRECTORIES", [])
-        monkeypatch.setattr("scanner.USER_EXCLUDED_DIRECTORIES", [])
+        monkeypatch.setattr("disk_space_manager.scanner.EXCLUDED_DIRECTORIES", [])
+        monkeypatch.setattr("disk_space_manager.scanner.USER_EXCLUDED_DIRECTORIES", [])
 
     def test_exclude_paths_skips_directory(self, tmp_path):
         """Files in excluded paths are not scanned."""

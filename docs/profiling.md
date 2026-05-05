@@ -15,7 +15,7 @@ By default, the script owns `downloads/benchmark`, deletes any existing contents
 generates 1,000,000 files under a 100 x 100 directory layout, runs:
 
 ```bash
-uv run python main.py full-report --path downloads/benchmark --age-months 6
+uv run python -m disk_space_manager full-report --path downloads/benchmark --age-months 6
 ```
 
 and then deletes `downloads/benchmark` in cleanup.

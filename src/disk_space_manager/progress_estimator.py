@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from scanner import ScanProgress
+from .scanner import ScanProgress
 
 
 @dataclass(frozen=True)

@@ -47,18 +47,27 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ## Usage
 
+The preferred command is the installed package script:
+
+```bash
+uv run disk-space-manager --help
+```
+
+`uv run python main.py ...` is still available as a compatibility shim when
+running from a checkout.
+
 ### Analyze Disk Usage
 
 Scan and analyze disk usage without making changes:
 
 ```bash
-uv run python main.py analyze
+uv run disk-space-manager analyze
 ```
 
 Scan a specific directory:
 
 ```bash
-uv run python main.py analyze --path /path/to/directory
+uv run disk-space-manager analyze --path /path/to/directory
 ```
 
 ### Clean Cache Files
@@ -66,13 +75,13 @@ uv run python main.py analyze --path /path/to/directory
 Identify and remove cache files after confirmation:
 
 ```bash
-uv run python main.py clean
+uv run disk-space-manager clean
 ```
 
 With a custom age threshold:
 
 ```bash
-uv run python main.py clean --age-months 3
+uv run disk-space-manager clean --age-months 3
 ```
 
 ### Archive Old Files
@@ -80,26 +89,26 @@ uv run python main.py clean --age-months 3
 Move old files to an auto-detected external drive:
 
 ```bash
-uv run python main.py archive
+uv run disk-space-manager archive
 ```
 
 Archive to a local folder:
 
 ```bash
-uv run python main.py archive --target-path /path/to/archive/folder
+uv run disk-space-manager archive --target-path /path/to/archive/folder
 ```
 
 Archive to a specific mounted external drive:
 
 ```bash
-uv run python main.py archive --external-path /Volumes/MyDrive
-uv run python main.py archive --external-path /media/$USER/MyDrive
+uv run disk-space-manager archive --external-path /Volumes/MyDrive
+uv run disk-space-manager archive --external-path /media/$USER/MyDrive
 ```
 
 With a custom age threshold:
 
 ```bash
-uv run python main.py archive --age-months 12 --target-path ./my_archive
+uv run disk-space-manager archive --age-months 12 --target-path ./my_archive
 ```
 
 ### Full Report
@@ -107,7 +116,7 @@ uv run python main.py archive --age-months 12 --target-path ./my_archive
 Generate a comprehensive read-only report:
 
 ```bash
-uv run python main.py full-report
+uv run disk-space-manager full-report
 ```
 
 ### Dry Run Mode
@@ -115,8 +124,8 @@ uv run python main.py full-report
 Preview mutating operations without changing files:
 
 ```bash
-uv run python main.py --dry-run clean
-uv run python main.py --dry-run archive
+uv run disk-space-manager --dry-run clean
+uv run disk-space-manager --dry-run archive
 ```
 
 ## Commands
@@ -200,7 +209,7 @@ You can always bypass detection with `--target-path` or `--external-path`.
 
 ## Configuration
 
-Default settings live in `config.py`:
+Default settings live in `src/disk_space_manager/config.py`:
 
 - `DEFAULT_AGE_THRESHOLD_MONTHS`: Default age for old files.
 - `CACHE_DIRECTORY_PATTERNS`: Patterns for cache directories.
@@ -224,13 +233,17 @@ dry-run state.
 ## Architecture
 
 ```text
-main.py            CLI entry point (Click commands, Rich UI)
-scanner.py         Filesystem scanning (os.scandir, thread pool)
-analyzer.py        File categorization and savings estimates
-executor.py        File operations, symlink creation, and logging
-drive_detector.py  External drive auto-detection
-config.py          Configuration constants and patterns
-utils.py           Shared utilities
+main.py                                  Checkout compatibility shim
+src/disk_space_manager/cli.py            Click command declarations
+src/disk_space_manager/workflows.py      Command workflow orchestration
+src/disk_space_manager/ui.py             Rich terminal presentation
+src/disk_space_manager/archive_targets.py Archive target resolution
+src/disk_space_manager/scanner.py        Filesystem scanning
+src/disk_space_manager/analyzer.py       File categorization and estimates
+src/disk_space_manager/executor.py       File operations and logging
+src/disk_space_manager/drive_detector.py External drive auto-detection
+src/disk_space_manager/config.py         Configuration constants
+src/disk_space_manager/utils.py          Shared utilities
 ```
 
 ## Agent Context

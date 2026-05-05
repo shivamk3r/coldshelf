@@ -7,10 +7,10 @@ from unittest.mock import MagicMock
 
 from click.testing import CliRunner
 
-from scanner import DiskScanner, ScanProgress
-from analyzer import FileAnalyzer
-from main import cli
-from progress_estimator import ScanProgressEstimator
+from disk_space_manager.scanner import DiskScanner, ScanProgress
+from disk_space_manager.analyzer import FileAnalyzer
+from disk_space_manager.cli import cli
+from disk_space_manager.progress_estimator import ScanProgressEstimator
 
 
 def _make_test_files(tmp_path, count=200, prefix="file", ext=".txt", content="content"):
@@ -42,8 +42,8 @@ class TestScannerProgressCallback:
 
     @pytest.fixture(autouse=True)
     def _clear_excluded_dirs(self, monkeypatch):
-        monkeypatch.setattr("scanner.EXCLUDED_DIRECTORIES", [])
-        monkeypatch.setattr("scanner.USER_EXCLUDED_DIRECTORIES", [])
+        monkeypatch.setattr("disk_space_manager.scanner.EXCLUDED_DIRECTORIES", [])
+        monkeypatch.setattr("disk_space_manager.scanner.USER_EXCLUDED_DIRECTORIES", [])
 
     def test_callback_is_invoked_during_scan(self, tmp_path):
         _make_test_files(tmp_path, count=250)
@@ -79,8 +79,8 @@ class TestScannerDetailedProgressCallback:
 
     @pytest.fixture(autouse=True)
     def _clear_excluded_dirs(self, monkeypatch):
-        monkeypatch.setattr("scanner.EXCLUDED_DIRECTORIES", [])
-        monkeypatch.setattr("scanner.USER_EXCLUDED_DIRECTORIES", [])
+        monkeypatch.setattr("disk_space_manager.scanner.EXCLUDED_DIRECTORIES", [])
+        monkeypatch.setattr("disk_space_manager.scanner.USER_EXCLUDED_DIRECTORIES", [])
 
     def test_detailed_callback_receives_final_snapshot(self, tmp_path):
         _make_test_files(tmp_path, count=25)
@@ -355,8 +355,8 @@ class TestFullReportCommand:
 
     @pytest.fixture(autouse=True)
     def _clear_excluded_dirs(self, monkeypatch):
-        monkeypatch.setattr("scanner.EXCLUDED_DIRECTORIES", [])
-        monkeypatch.setattr("scanner.USER_EXCLUDED_DIRECTORIES", [])
+        monkeypatch.setattr("disk_space_manager.scanner.EXCLUDED_DIRECTORIES", [])
+        monkeypatch.setattr("disk_space_manager.scanner.USER_EXCLUDED_DIRECTORIES", [])
 
     def test_runs_successfully(self, tmp_path):
         _make_test_files(tmp_path, count=10)
