@@ -121,3 +121,130 @@ export interface ActionResult {
   result: Record<string, unknown>;
   created_at: string;
 }
+
+export interface ProtectedFolder {
+  id: string;
+  name: string;
+  source_path: string;
+  required_copies: number;
+  recovery_confirmed: boolean;
+  current_generation_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProtectedFolderCreated extends ProtectedFolder {
+  recovery_key: string;
+  recovery_instructions: string;
+}
+
+export interface MountedVolume {
+  volume_uuid: string;
+  name: string;
+  mount_path: string;
+  filesystem: string;
+  device_identifier: string;
+  total_bytes: number;
+  free_bytes: number;
+  writable: boolean;
+  internal: boolean;
+  removable: boolean;
+  enrolled: boolean;
+  drive_target_id?: string | null;
+}
+
+export interface DriveTarget {
+  id: string;
+  protected_folder_id: string;
+  volume_uuid: string;
+  volume_name: string;
+  filesystem: string;
+  repo_relative_path: string;
+  repository_id: string;
+  total_bytes: number;
+  free_bytes: number;
+  status: string;
+  mounted: boolean;
+  mount_path?: string | null;
+  enrolled_at: string;
+  last_seen_at?: string | null;
+  last_backup_at?: string | null;
+  last_structural_check_at?: string | null;
+  last_full_check_at?: string | null;
+}
+
+export interface ReplicaStatus {
+  file_version_id: string;
+  drive_target_id: string;
+  generation_id: string;
+  snapshot_id: string;
+  status: string;
+  backed_up_at: string;
+  verified_at?: string | null;
+  full_verified_at?: string | null;
+  error?: string | null;
+  volume_name?: string;
+  drive_status?: string;
+}
+
+export interface FileVersion {
+  id: string;
+  protected_folder_id: string;
+  relative_path: string;
+  file_type: string;
+  size: number;
+  local_state: string;
+  verified_replica_count: number;
+  replicas: ReplicaStatus[];
+}
+
+export interface ProtectionSummary {
+  file_count: number;
+  total_bytes: number;
+  local_files: number;
+  local_bytes: number;
+  pending_files: number;
+  pending_bytes: number;
+  unprotected_files: number;
+  unprotected_bytes: number;
+  partial_files: number;
+  partial_bytes: number;
+  protected_files: number;
+  protected_bytes: number;
+  evicted_files: number;
+  evicted_bytes: number;
+  at_risk_files: number;
+  at_risk_bytes: number;
+}
+
+export type ProtectionOperationStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface ProtectionOperation {
+  id: string;
+  protected_folder_id: string;
+  kind: "index" | "backup" | "verify" | "evict" | "restore";
+  status: ProtectionOperationStatus;
+  drive_target_id?: string | null;
+  request: Record<string, unknown>;
+  result?: Record<string, unknown> | null;
+  error?: string | null;
+  progress_percent: number;
+  progress_message: string;
+  cancel_requested: boolean;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ProtectedFolderDetail {
+  folder: ProtectedFolder;
+  summary: ProtectionSummary;
+  drives: DriveTarget[];
+  files: FileVersion[];
+  operations: ProtectionOperation[];
+}

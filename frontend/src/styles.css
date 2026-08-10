@@ -18,7 +18,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -33,7 +34,8 @@ button:disabled {
   opacity: 0.55;
 }
 
-input {
+input,
+select {
   width: 100%;
   border: 1px solid #c7d0da;
   border-radius: 6px;
@@ -158,6 +160,31 @@ p {
   display: grid;
   gap: 8px;
   margin-top: 18px;
+}
+
+.section-switcher {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.section-switcher button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  color: #d7e0e8;
+  background: #202b37;
+  text-align: left;
+}
+
+.section-switcher button.active {
+  color: #ffffff;
+  outline: 2px solid #34d399;
+}
+
+.section-switcher svg {
+  width: 17px;
 }
 
 .job-button {
@@ -435,6 +462,21 @@ p {
   border-color: #fecdd3;
 }
 
+.recovery-confirm-inline {
+  display: grid;
+  grid-template-columns: 1fr minmax(180px, 0.5fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.recovery-confirm-inline button {
+  min-height: 38px;
+  padding: 8px 12px;
+  color: #ffffff;
+  background: #be123c;
+  font-weight: 800;
+}
+
 .empty-state,
 .loading-state,
 .result-toast,
@@ -459,6 +501,417 @@ p {
   background: #ecfdf5;
   border-color: #a7f3d0;
   overflow-wrap: anywhere;
+}
+
+.protected-dashboard {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.protected-header,
+.protected-title,
+.catalog-header,
+.drive-card-title,
+.button-row,
+.operation-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.protected-header h2 {
+  margin: 4px 0;
+  font-size: 1.55rem;
+}
+
+.protected-header p,
+.protected-title p,
+.protected-form p {
+  color: #607181;
+}
+
+.eyebrow {
+  color: #047857;
+  font-size: 0.76rem;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.button-row {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.button-row button,
+.primary-inline,
+.protected-title button,
+.protected-form button,
+.drive-card button,
+.catalog-actions button,
+.eviction-confirm button,
+.operation-panel button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 12px;
+  color: #1f3a56;
+  background: #e6eef7;
+  font-weight: 800;
+}
+
+.button-row svg,
+.protected-title button svg,
+.protected-form button svg,
+.catalog-actions button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.primary-inline,
+.protected-form button.primary-inline {
+  color: #ffffff;
+  background: #047857;
+}
+
+.protected-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.protected-folder-list {
+  display: grid;
+  gap: 7px;
+  position: sticky;
+  top: 18px;
+}
+
+.protected-folder-list button {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 10px;
+  color: #31475c;
+  background: #f0f4f8;
+  text-align: left;
+}
+
+.protected-folder-list button.active {
+  color: #065f46;
+  background: #d1fae5;
+  outline: 1px solid #6ee7b7;
+}
+
+.protected-folder-list button span {
+  display: grid;
+  min-width: 0;
+  font-weight: 800;
+}
+
+.protected-folder-list small {
+  color: #607181;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.protected-folder-list svg {
+  width: 17px;
+  flex: 0 0 auto;
+}
+
+.protected-main {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.protected-title h2 {
+  margin: 4px 0;
+}
+
+.protected-title p {
+  overflow-wrap: anywhere;
+}
+
+.protection-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.protection-metrics .metric {
+  padding: 12px;
+}
+
+.protection-metrics strong,
+.protection-metrics small {
+  display: block;
+}
+
+.protection-metrics strong {
+  margin-top: 5px;
+  font-size: 1rem;
+}
+
+.protection-metrics small {
+  margin-top: 3px;
+  color: #607181;
+}
+
+.protection-metrics .risk {
+  border-color: #fda4af;
+  background: #fff1f2;
+}
+
+.drive-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.drive-card {
+  min-width: 0;
+  padding: 15px;
+  background: #ffffff;
+  border: 1px solid #dce3ea;
+  border-radius: 8px;
+}
+
+.drive-card h3 {
+  margin: 0 auto 0 0;
+}
+
+.drive-card-title svg,
+.enroll-card > svg {
+  color: #2563eb;
+}
+
+.drive-online,
+.drive-offline {
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.drive-online {
+  color: #065f46;
+  background: #d1fae5;
+}
+
+.drive-offline {
+  color: #475569;
+  background: #e2e8f0;
+}
+
+.drive-card dl {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 5px 10px;
+  margin: 13px 0;
+  font-size: 0.8rem;
+}
+
+.drive-card dt {
+  color: #607181;
+}
+
+.drive-card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.enroll-card {
+  border-style: dashed;
+}
+
+.enroll-card h3 {
+  margin: 8px 0 4px;
+}
+
+.enroll-card p {
+  margin-bottom: 12px;
+  color: #607181;
+}
+
+.pending-prompt {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  color: #78350f;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+}
+
+.operation-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(160px, 0.8fr) auto;
+}
+
+.operation-panel > div:first-child {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  justify-content: start;
+  align-items: center;
+  gap: 6px;
+}
+
+.operation-panel p {
+  grid-column: 1 / -1;
+  color: #607181;
+}
+
+.status-pill.cancelled {
+  background: #d97706;
+}
+
+.catalog-header > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.catalog-header form {
+  display: flex;
+  width: min(390px, 100%);
+}
+
+.catalog-header form input {
+  border-radius: 6px 0 0 6px;
+}
+
+.catalog-header form button {
+  padding: 8px 11px;
+  color: #ffffff;
+  background: #047857;
+  border-radius: 0 6px 6px 0;
+}
+
+.catalog-header svg {
+  width: 17px;
+}
+
+.catalog-table-wrap {
+  max-height: 500px;
+  overflow: auto;
+  border: 1px solid #e1e6eb;
+}
+
+.catalog th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px;
+  background: #f8fafc;
+  text-align: left;
+}
+
+.catalog input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+.replica-badge {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #475569;
+  background: #e2e8f0;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.replica-badge.structural_checked {
+  color: #1e40af;
+  background: #dbeafe;
+}
+
+.replica-badge.full_checked {
+  color: #065f46;
+  background: #d1fae5;
+}
+
+.replica-badge.suspect {
+  color: #9f1239;
+  background: #ffe4e6;
+}
+
+.catalog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.eviction-confirm,
+.recovery-key-panel {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  border-color: #fbbf24;
+  background: #fffbeb;
+}
+
+.eviction-confirm > svg,
+.recovery-key-panel > svg {
+  color: #d97706;
+}
+
+.eviction-confirm p {
+  margin: 7px 0;
+  color: #78350f;
+}
+
+.danger-button,
+.eviction-confirm .danger-button {
+  margin-top: 10px;
+  color: #ffffff;
+  background: #be123c;
+}
+
+.protected-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 14px;
+  align-items: end;
+}
+
+.protected-form h2,
+.protected-form p {
+  grid-column: 1 / -1;
+}
+
+.protected-form button {
+  margin-top: 12px;
+}
+
+.recovery-key-panel code {
+  display: block;
+  margin: 10px 0;
+  padding: 12px;
+  background: #18212b;
+  color: #f7fafc;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.recovery-key-panel pre {
+  max-height: 170px;
+  overflow: auto;
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid #ead7a2;
+  border-radius: 6px;
+  white-space: pre-wrap;
 }
 
 .spin {
@@ -513,8 +966,19 @@ p {
   .tables-grid,
   .candidate-grid,
   .duplicate-grid,
-  .status-band {
+  .status-band,
+  .protected-layout,
+  .drive-grid,
+  .operation-panel {
     grid-template-columns: 1fr;
+  }
+
+  .protected-folder-list {
+    position: static;
+  }
+
+  .protection-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -526,6 +990,22 @@ p {
 
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .protected-header,
+  .protected-title,
+  .catalog-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .recovery-confirm-inline {
+    grid-template-columns: 1fr;
+  }
+
+  .protection-metrics,
+  .protected-form {
+    grid-template-columns: 1fr;
   }
 
   .metric strong {

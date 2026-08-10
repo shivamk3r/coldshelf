@@ -261,6 +261,13 @@ def show_operation_cancelled() -> None:
     console.print("[yellow]Operation cancelled.[/yellow]")
 
 
+def show_protected_paths_skipped(count: int) -> None:
+    console.print(
+        f"[yellow]Protected folders: skipped {count} candidate(s) from this "
+        "legacy mutation. Use 'protect evict' after verified replicas instead.[/yellow]"
+    )
+
+
 def show_deletion_started() -> None:
     console.print("\n[bold yellow]🗑️  Deleting cache files...[/bold yellow]")
 

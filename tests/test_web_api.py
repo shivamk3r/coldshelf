@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from disk_space_manager.web.app import create_app
 from disk_space_manager.web.repository import WebRepository
+from disk_space_manager.protection.repository import ProtectionRepository
 
 
 def _auth(token):
@@ -135,3 +136,42 @@ def test_dry_run_archive_action_uses_candidate_ids(tmp_path, monkeypatch):
     assert response.json()["result"]["moved"] == 1
     assert (source / "old.bin").exists()
     assert not archive_target.exists()
+
+
+def test_web_legacy_action_rejects_protected_candidate(tmp_path):
+    source = tmp_path / "protected"
+    source.mkdir()
+    (source / "cache.tmp").write_text("protected")
+    web_repository = WebRepository(tmp_path / "web.sqlite3")
+    protection_repository = ProtectionRepository(tmp_path / "protected.sqlite3")
+    protection_repository.create_folder("folder", "Protected", source, 2)
+    app = create_app(
+        repository=web_repository,
+        protection_repository=protection_repository,
+        token="secret",
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/jobs",
+        headers=_auth("secret"),
+        json={
+            "path": str(source),
+            "age_months": 1,
+            "include_duplicates": False,
+            "include_near_duplicates": False,
+        },
+    )
+    job_id = response.json()["id"]
+    assert _wait_for_job(client, "secret", job_id)["status"] == "completed"
+    report = client.get(
+        f"/api/jobs/{job_id}/report", headers=_auth("secret")
+    ).json()
+    candidate_id = report["cache_candidates"][0]["id"]
+    blocked = client.post(
+        f"/api/jobs/{job_id}/actions/clean",
+        headers=_auth("secret"),
+        json={"candidate_ids": [candidate_id], "dry_run": True},
+    )
+    assert blocked.status_code == 400
+    assert (source / "cache.tmp").exists()

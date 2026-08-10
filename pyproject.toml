@@ -10,6 +10,7 @@ dependencies = [
     "Pillow>=10.0.0",
     "click>=8.1.0",
     "fastapi>=0.115.0",
+    "keyring>=25.6.0,<26.0.0",
     "numpy>=1.26.0",
     "opencv-python-headless>=4.9.0.80",
     "pydantic>=2.7.0",

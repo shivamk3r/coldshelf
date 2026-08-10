@@ -11,6 +11,7 @@ from .archive_targets import ArchiveTargetError, resolve_archive_target
 from .duplicates import DuplicateDetector, empty_duplicate_report
 from .executor import ActionExecutor
 from .scanner import DiskScanner
+from .protection.repository import ProtectionRepository
 from . import ui
 
 
@@ -35,6 +36,9 @@ def run_clean(path: Optional[Path], age_months: int, dry_run: bool) -> None:
     analyzer = _analyzer_for_age(age_months)
     scan_results = ui.scan_with_spinner(scanner)
     cache_files = ui.show_cache_analysis(analyzer, scan_results["files"])
+    cache_files, protected_skipped = _exclude_protected_mutations(cache_files)
+    if protected_skipped:
+        ui.show_protected_paths_skipped(protected_skipped)
 
     if not cache_files:
         ui.show_no_cache_files()
@@ -89,6 +93,9 @@ def run_archive(
         if not os.path.islink(file_info["path"])
     ]
     old_files = ui.show_old_files_analysis(analyzer, files, age_months)
+    old_files, protected_skipped = _exclude_protected_mutations(old_files)
+    if protected_skipped:
+        ui.show_protected_paths_skipped(protected_skipped)
 
     if not old_files:
         ui.show_no_old_files(age_months)
@@ -154,3 +161,16 @@ def _scan_path_or_home(path: Optional[Path]) -> Path:
 
 def _analyzer_for_age(age_months: int) -> FileAnalyzer:
     return FileAnalyzer(age_threshold=timedelta(days=age_months * 30))
+
+
+def _exclude_protected_mutations(files):
+    """Fail closed around registered protected paths for legacy mutations."""
+    repository = ProtectionRepository()
+    safe = []
+    skipped = 0
+    for file_info in files:
+        if repository.is_protected_path(Path(file_info["path"])):
+            skipped += 1
+        else:
+            safe.append(file_info)
+    return safe, skipped

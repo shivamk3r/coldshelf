@@ -26,6 +26,9 @@ CLI.
 - **Rich CLI**: Terminal UI with progress bars, tables, and color-coded output.
 - **Web Dashboard**: Optional FastAPI and React interface for visual reports,
   live progress, candidate selection, and confirmed clean/archive actions.
+- **Protected Folders**: macOS-first, encrypted Restic archives replicated to
+  independently usable disks, with an offline file catalog and guarded local
+  eviction only after the configured copy count is verified.
 - **External Drive Detection**: Auto-detects writable external drives on macOS
   and common Linux mount locations.
 - **Action Logging**: Logs delete and archive actions for review and audit.
@@ -110,6 +113,59 @@ The web workflow is:
 4. Select stored candidate IDs from the completed report.
 5. Run clean/archive in dry-run mode, or provide the displayed confirmation
    phrase to execute the real action.
+
+The **Protected folders** dashboard is separate from report jobs. It shows
+local/pending/partial/protected/evicted/at-risk totals, one health card per
+enrolled drive, per-file replica receipts, queued progress, cancellation, and
+fresh-Mac recovery import. Mounted disks are polled every five seconds only
+while that dashboard section is open; there is no background agent.
+
+### Protected Folders (macOS)
+
+Protected folders use one independent encrypted Restic repository per enrolled
+disk. Install official Restic 0.19.1 or newer first:
+
+```bash
+brew install restic
+restic version --json
+```
+
+Create a set, paste the one-time recovery key back when prompted, then enroll,
+index, and back up one mounted disk at a time:
+
+```bash
+uv run disk-space-manager protect create --name "Large Files" \
+  --path /Users/you/Archives/large-files --required-copies 2
+uv run disk-space-manager protect volumes
+uv run disk-space-manager protect enroll "Large Files" --mount-path /Volumes/HDD1
+uv run disk-space-manager protect index "Large Files"
+uv run disk-space-manager protect status "Large Files"
+uv run disk-space-manager protect backup "Large Files" --drive-id <HDD1-DRIVE-ID>
+```
+
+Disconnect HDD1, connect and enroll HDD2, and repeat `backup` with HDD2's drive
+ID. The two disks never need to be connected simultaneously. Files remain
+searchable in `~/.disk-space-manager-protected.sqlite3` while both are offline.
+
+Eviction always starts with a dry-run and uses catalog file IDs, not arbitrary
+paths:
+
+```bash
+uv run disk-space-manager --dry-run protect evict "Large Files" --file-id <FILE-ID>
+uv run disk-space-manager protect evict "Large Files" --file-id <FILE-ID>
+uv run disk-space-manager protect restore "Large Files" --file-id <FILE-ID> \
+  --drive-id <CONNECTED-DRIVE-ID>
+```
+
+The real eviction requires an `EVICT <set> <count>` phrase. It is blocked until
+the unchanged file version has verified receipts from the required number of
+distinct repositories and the recovery key was confirmed. Structural Restic
+checks qualify by default; `protect verify --full` reads data blocks back. No
+symlink or stub remains after eviction, and restore never overwrites a path.
+
+See [the protected-folder runbook](docs/protected-folders.md) before protecting
+or evicting real data. Do not use the legacy `archive` command on a protected
+folder; registered protected paths are excluded from legacy mutations.
 
 ### Analyze Disk Usage
 
@@ -197,6 +253,8 @@ uv run disk-space-manager --dry-run archive
 - `clean` - Identify and remove cache files after confirmation.
 - `archive` - Move old files to an external drive or local folder.
 - `full-report` - Generate a comprehensive analysis report.
+- `protect` - Create, enroll, index, back up, verify, evict, restore, or recover
+  a replicated protected folder.
 - `disk-space-manager-web` - Start the web dashboard and API.
 
 ## Options
@@ -223,6 +281,14 @@ uv run disk-space-manager --dry-run archive
 6. **Web Token Auth**: Web API routes require a local token. Mutating web
    actions only accept candidate IDs from completed report jobs and require a
    confirmation phrase unless run in dry-run mode.
+7. **Independent Replica Receipts**: Protected-folder eviction requires the
+   configured number of structurally checked repositories for the unchanged
+   catalog version. Offline drive receipts remain usable.
+8. **Recovery Secret Isolation**: Restic keys live in macOS Keychain, never in
+   SQLite or process arguments. The recovery key is shown once for storage in a
+   password manager.
+9. **Historical Retention**: Protected-folder code never invokes Restic
+   `forget` or `prune` in v1.
 
 ## How It Works
 
@@ -310,6 +376,8 @@ Default settings live in `src/disk_space_manager/config.py`:
 - A local folder or mounted external drive for archiving
 - FastAPI, Uvicorn, and Pydantic for the web API
 - SQLite for web job, report, candidate, and action history
+- Restic 0.19.1+ for protected folders on macOS
+- `keyring` using the macOS Keychain backend for protected-folder secrets
 - Offline media libraries for duplicate analysis: Pillow, ImageHash,
   OpenCV headless, SoundFile, and NumPy
 - [uv](https://docs.astral.sh/uv/) for dependency management
@@ -317,7 +385,8 @@ Default settings live in `src/disk_space_manager/config.py`:
 
 ## Action Log
 
-All delete and archive actions are logged to
+All delete, archive, protected-folder backup, verification, eviction, restore,
+and enrollment actions are logged to
 `~/.disk-space-manager-actions.log` with timestamps, paths, sizes, status, and
 dry-run state.
 
@@ -337,6 +406,7 @@ src/disk_space_manager/scanner.py         Filesystem scanning
 src/disk_space_manager/analyzer.py        File categorization and estimates
 src/disk_space_manager/duplicates.py      Duplicate and near-duplicate analysis
 src/disk_space_manager/executor.py        File operations and logging
+src/disk_space_manager/protection/        Catalog, Keychain, Restic, volumes, safety
 src/disk_space_manager/drive_detector.py  External drive auto-detection
 src/disk_space_manager/web/               FastAPI app, services, jobs, SQLite
 src/disk_space_manager/web/static/        Packaged React production build
@@ -360,10 +430,13 @@ agent skills live in `.agents/skills/`, and shared command prompts live in
 - External drives must be mounted and writable when using `--external-path` or
   auto-detection.
 - Scanning speed is bounded by filesystem I/O.
-- The web backend runs one heavy report job at a time.
+- The web backend serializes report and protected-folder disk work through one
+  shared heavy-I/O queue.
 - The web token model is suitable for local or carefully controlled server use;
   it is not a multi-user account system.
-- Web jobs cannot currently be cancelled once started.
+- Report jobs cannot currently be cancelled once started; Restic-backed
+  protection operations can be cancelled safely.
+- Protected folders currently require macOS stable volume UUID discovery.
 
 ## License
 

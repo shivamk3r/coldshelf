@@ -1,5 +1,6 @@
 """Action execution with safety checks and logging."""
 
+import json
 import shutil
 from pathlib import Path
 from datetime import datetime
@@ -24,8 +25,9 @@ class ActionExecutor:
         self.action_log = []
         self.log_file = ACTION_LOG_FILE
     
-    def log_action(self, action_type: str, source: Path, target: Optional[Path] = None, 
-                   size: int = 0, success: bool = True, error: Optional[str] = None):
+    def log_action(self, action_type: str, source: Path, target: Optional[Path] = None,
+                   size: int = 0, success: bool = True, error: Optional[str] = None,
+                   details: Optional[Dict] = None):
         """Log an action to file and memory."""
         log_entry = {
             'timestamp': datetime.now().isoformat(),
@@ -35,6 +37,7 @@ class ActionExecutor:
             'size': size,
             'success': success,
             'error': error,
+            'details': details,
             'dry_run': self.dry_run
         }
         
@@ -49,6 +52,8 @@ class ActionExecutor:
                 f.write(f" | {format_size(size)} | {'SUCCESS' if success else 'FAILED'}")
                 if error:
                     f.write(f" | ERROR: {error}")
+                if details:
+                    f.write(f" | EVIDENCE: {json.dumps(details, sort_keys=True)}")
                 if self.dry_run:
                     f.write(" | DRY-RUN")
                 f.write("\n")

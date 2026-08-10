@@ -7,6 +7,7 @@ import click
 
 from . import ui, workflows
 from .config import DEFAULT_AGE_THRESHOLD_MONTHS
+from .protection.cli import protect
 
 
 @click.group()
@@ -128,3 +129,6 @@ def full_report(
         include_duplicates=not no_duplicates,
         include_near_duplicates=not no_near_duplicates and not no_duplicates,
     )
+
+
+cli.add_command(protect)

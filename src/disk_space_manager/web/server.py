@@ -10,6 +10,10 @@ import click
 import uvicorn
 
 from .app import create_app
+from disk_space_manager.protection.repository import (
+    DEFAULT_PROTECTION_DB_PATH,
+    ProtectionRepository,
+)
 from .repository import DEFAULT_DB_PATH, WebRepository
 from .security import get_or_create_token
 
@@ -48,7 +52,12 @@ def main(
     if host != "127.0.0.1":
         click.echo("Network mode enabled. Keep the printed token private.")
 
-    app = create_app(repository=repository, token=api_token, dev_origin=dev_origin)
+    app = create_app(
+        repository=repository,
+        protection_repository=ProtectionRepository(DEFAULT_PROTECTION_DB_PATH),
+        token=api_token,
+        dev_origin=dev_origin,
+    )
     try:
         uvicorn.run(app, host=host, port=port, log_level="info")
     finally:

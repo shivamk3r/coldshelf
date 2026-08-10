@@ -33,6 +33,7 @@ import {
   saveToken
 } from "./api";
 import type { ActionResult, Candidate, DuplicateGroup, Job, Report } from "./types";
+import { ProtectedFolders } from "./ProtectedFolders";
 
 const CHART_COLORS = ["#047857", "#2563eb", "#d97706", "#be123c", "#6d28d9", "#0f766e"];
 
@@ -55,6 +56,7 @@ export function App() {
   const [archivePhrase, setArchivePhrase] = useState("");
   const [actionResult, setActionResult] = useState<ActionResult | null>(null);
   const [error, setError] = useState("");
+  const [view, setView] = useState<"reports" | "protection">("reports");
 
   useEffect(() => {
     if (!token) return;
@@ -196,6 +198,16 @@ export function App() {
           </div>
         </div>
 
+        <div className="section-switcher">
+          <button className={view === "reports" ? "active" : ""} onClick={() => setView("reports")}>
+            <Database />Reports
+          </button>
+          <button className={view === "protection" ? "active" : ""} onClick={() => setView("protection")}>
+            <ShieldCheck />Protected folders
+          </button>
+        </div>
+
+        {view === "reports" && <>
         <form className="scan-form" onSubmit={(event) => submitJob(event).catch((err) => setError(err.message))}>
           <label htmlFor="path">Path</label>
           <input
@@ -254,9 +266,13 @@ export function App() {
             </button>
           ))}
         </div>
+        </>}
       </aside>
 
       <section className="content">
+        {view === "protection" ? (
+          <ProtectedFolders token={token} />
+        ) : <>
         {error && <div className="alert">{error}</div>}
 
         {currentJob && (
@@ -408,6 +424,7 @@ export function App() {
             </span>
           </section>
         )}
+        </>}
       </section>
     </main>
   );

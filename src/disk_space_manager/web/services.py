@@ -16,6 +16,7 @@ from disk_space_manager.archive_targets import (
 from disk_space_manager.duplicates import DuplicateDetector, empty_duplicate_report
 from disk_space_manager.executor import ActionExecutor
 from disk_space_manager.scanner import DiskScanner, ScanProgress
+from disk_space_manager.protection.repository import ProtectionRepository
 from disk_space_manager.utils import format_size
 
 from .repository import WebRepository, confirmation_phrase
@@ -141,13 +142,23 @@ class ReportService:
 class ActionService:
     """Execute web actions against persisted report candidates."""
 
-    def __init__(self, repository: WebRepository):
+    def __init__(
+        self,
+        repository: WebRepository,
+        protection_repository: Optional[ProtectionRepository] = None,
+    ):
         self.repository = repository
+        self.protection_repository = protection_repository or ProtectionRepository()
 
     def clean(self, job_id: str, request: ActionRequest) -> Dict[str, Any]:
         self._validate_action_request(job_id, "clean", request)
         candidates = self._load_candidates(job_id, "cache", request.candidate_ids)
-        files = [_candidate_to_file(candidate) for candidate in candidates]
+        selected_files = [_candidate_to_file(candidate) for candidate in candidates]
+        files, skipped_count = self._exclude_protected(selected_files)
+        if not files:
+            raise ServiceError(
+                "Selected files are registered as protected; use protected-folder eviction"
+            )
         executor = ActionExecutor(dry_run=request.dry_run)
         result = executor.delete_files(files, confirm=False)
         return self.repository.save_action(
@@ -156,8 +167,8 @@ class ActionService:
             action_type="clean",
             dry_run=request.dry_run,
             target_path=None,
-            selected_count=len(files),
-            skipped_count=0,
+            selected_count=len(selected_files),
+            skipped_count=skipped_count,
             result=result,
         )
 
@@ -170,13 +181,14 @@ class ActionService:
             raise ServiceError(str(exc)) from exc
 
         selected_files = [_candidate_to_file(candidate) for candidate in candidates]
+        unprotected_files, protected_skipped = self._exclude_protected(selected_files)
         files = [
             file_info
-            for file_info in selected_files
+            for file_info in unprotected_files
             if not _is_under_path(Path(file_info["path"]), target.root)
             and not os.path.islink(file_info["path"])
         ]
-        skipped_count = len(selected_files) - len(files)
+        skipped_count = protected_skipped + len(unprotected_files) - len(files)
         if not files:
             raise ServiceError("No selected archive candidates are safe to archive")
 
@@ -225,6 +237,16 @@ class ActionService:
         if len(candidates) != len(set(candidate_ids)):
             raise ServiceError("One or more selected candidates are invalid")
         return candidates
+
+    def _exclude_protected(
+        self, files: List[Dict[str, Any]]
+    ) -> tuple[List[Dict[str, Any]], int]:
+        safe = [
+            file_info
+            for file_info in files
+            if not self.protection_repository.is_protected_path(Path(file_info["path"]))
+        ]
+        return safe, len(files) - len(safe)
 
 
 def _resolve_scan_path(path: Optional[str]) -> Path:
