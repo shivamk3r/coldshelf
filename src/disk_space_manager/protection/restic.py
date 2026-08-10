@@ -1,6 +1,7 @@
 """Strict subprocess adapter for the user-installed Restic executable."""
 
 import json
+import math
 import os
 import queue
 import re
@@ -13,8 +14,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
+from .policy import RESTIC_EXCLUDE_PATTERNS, is_ignored_backup_path
+
 
 MIN_RESTIC_VERSION = (0, 19, 1)
+ResticProgressCallback = Callable[[float, str, Optional[int]], None]
 
 
 class ResticError(RuntimeError):
@@ -117,7 +121,7 @@ class ResticRunner:
         source_path: Path,
         *,
         operation_id: str,
-        progress: Optional[Callable[[float, str], None]] = None,
+        progress: Optional[ResticProgressCallback] = None,
     ) -> str:
         tags = _snapshot_tags(folder_id, generation_id)
         args = [
@@ -126,6 +130,7 @@ class ResticRunner:
             "--json",
             "--exclude=/.disk-space-manager/**",
         ]
+        args.extend(f"--exclude={pattern}" for pattern in RESTIC_EXCLUDE_PATTERNS)
         for tag in tags:
             args.extend(["--tag", tag])
         result = self.run(
@@ -135,6 +140,7 @@ class ResticRunner:
             cwd=source_path,
             operation_id=operation_id,
             progress=progress,
+            include_eta=True,
         )
         for message in reversed(result.messages):
             if message.get("message_type") == "summary" and message.get("snapshot_id"):
@@ -201,7 +207,11 @@ class ResticRunner:
             if message.get("struct_type") != "node" or message.get("type") != "file":
                 continue
             relative_path = str(message.get("path") or "").lstrip("/")
-            if not relative_path or relative_path.startswith(".disk-space-manager/"):
+            if (
+                not relative_path
+                or relative_path.startswith(".disk-space-manager/")
+                or is_ignored_backup_path(relative_path)
+            ):
                 continue
             entries.append(
                 {
@@ -220,7 +230,7 @@ class ResticRunner:
         *,
         full: bool = False,
         operation_id: Optional[str] = None,
-        progress: Optional[Callable[[float, str], None]] = None,
+        progress: Optional[ResticProgressCallback] = None,
     ) -> None:
         args = ["check", "--json"]
         if full:
@@ -247,7 +257,7 @@ class ResticRunner:
         target: Path,
         *,
         operation_id: str,
-        progress: Optional[Callable[[float, str], None]] = None,
+        progress: Optional[ResticProgressCallback] = None,
     ) -> None:
         args = ["restore", snapshot_id, "--target", str(target), "--json"]
         for relative_path in relative_paths:
@@ -268,7 +278,7 @@ class ResticRunner:
         relative_paths: Iterable[str],
         *,
         operation_id: str,
-        progress: Optional[Callable[[float, str], None]] = None,
+        progress: Optional[ResticProgressCallback] = None,
     ) -> None:
         paths = list(relative_paths)
         for index, relative_path in enumerate(paths, start=1):
@@ -289,7 +299,8 @@ class ResticRunner:
         folder_id: Optional[str] = None,
         cwd: Optional[Path] = None,
         operation_id: Optional[str] = None,
-        progress: Optional[Callable[[float, str], None]] = None,
+        progress: Optional[ResticProgressCallback] = None,
+        include_eta: bool = False,
     ) -> ResticResult:
         env = self._environment(repository, folder_id)
         cmd = [self.binary, *args]
@@ -344,7 +355,7 @@ class ResticRunner:
                         continue
                     if isinstance(message, dict):
                         messages.append(message)
-                        _emit_progress(message, progress)
+                        _emit_progress(message, progress, include_eta=include_eta)
                 exit_code = process.wait()
             except BaseException:
                 _interrupt_process(process)
@@ -483,7 +494,10 @@ def _safe_error(output: str) -> str:
 
 
 def _emit_progress(
-    message: Dict[str, Any], progress: Optional[Callable[[float, str], None]]
+    message: Dict[str, Any],
+    progress: Optional[ResticProgressCallback],
+    *,
+    include_eta: bool = False,
 ) -> None:
     if not progress:
         return
@@ -492,11 +506,24 @@ def _emit_progress(
         ratio = float(message.get("percent_done") or 0)
         current = message.get("current_files") or []
         label = f"Processing {current[0]}" if current else "Processing files"
-        progress(max(0.0, min(ratio, 1.0)), label)
+        eta_seconds = (
+            _parse_eta_seconds(message.get("seconds_remaining")) if include_eta else None
+        )
+        progress(max(0.0, min(ratio, 1.0)), label, eta_seconds)
     elif message_type == "summary":
-        progress(1.0, "Restic operation complete")
+        progress(1.0, "Restic operation complete", None)
     elif message_type in {"error", "fatal"}:
-        progress(0.0, str(message.get("message") or "Restic error"))
+        progress(0.0, str(message.get("message") or "Restic error"), None)
+
+
+def _parse_eta_seconds(value: Any) -> Optional[int]:
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return int(math.ceil(seconds))
 
 
 def _single_json(result: ResticResult):

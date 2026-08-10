@@ -11,7 +11,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 
 DEFAULT_PROTECTION_DB_PATH = Path.home() / ".disk-space-manager-protected.sqlite3"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 VERIFIED_REPLICA_STATES = frozenset({"structural_checked", "full_checked"})
 
 
@@ -33,7 +33,7 @@ class ProtectionRepository:
         self.db_path.chmod(0o600)
         with self._read() as conn:
             version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-            if version not in {0, SCHEMA_VERSION}:
+            if version not in {0, 1, SCHEMA_VERSION}:
                 raise RuntimeError(
                     f"Unsupported protected-folder database version {version}; "
                     f"expected {SCHEMA_VERSION}"
@@ -148,6 +148,8 @@ class ProtectionRepository:
                     error TEXT,
                     progress_percent REAL NOT NULL DEFAULT 0,
                     progress_message TEXT NOT NULL DEFAULT 'Queued',
+                    eta_seconds INTEGER,
+                    diagnostics_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL,
                     started_at TEXT,
                     finished_at TEXT,
@@ -158,6 +160,21 @@ class ProtectionRepository:
                     ON protection_operations(protected_folder_id, created_at DESC);
                 """
             )
+            operation_columns = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(protection_operations)").fetchall()
+            }
+            if "eta_seconds" not in operation_columns:
+                conn.execute(
+                    "ALTER TABLE protection_operations ADD COLUMN eta_seconds INTEGER"
+                )
+            if "diagnostics_json" not in operation_columns:
+                conn.execute(
+                    """
+                    ALTER TABLE protection_operations
+                    ADD COLUMN diagnostics_json TEXT NOT NULL DEFAULT '{}'
+                    """
+                )
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def create_folder(
@@ -351,8 +368,11 @@ class ProtectionRepository:
         folder_id: str,
         manifest_digest: str,
         entries: Iterable[Dict[str, Any]],
+        *,
+        retire_paths: Iterable[str] = (),
     ) -> Dict[str, Any]:
         entry_list = list(entries)
+        retired_paths = set(retire_paths)
         now = utc_now()
         with self._write() as conn:
             generation_row = conn.execute(
@@ -451,6 +471,16 @@ class ProtectionRepository:
                     """,
                     (now, current["id"]),
                 )
+
+            retired_paths.difference_update(seen_paths)
+            conn.executemany(
+                """
+                UPDATE file_versions
+                SET is_current = 0, updated_at = ?
+                WHERE protected_folder_id = ? AND relative_path = ? AND is_current = 1
+                """,
+                [(now, folder_id, path) for path in sorted(retired_paths)],
+            )
 
             conn.execute(
                 "DELETE FROM generation_entries WHERE generation_id = ?",
@@ -748,15 +778,25 @@ class ProtectionRepository:
         """Make operations left active by a prior process explicitly retryable."""
         now = utc_now()
         with self._write() as conn:
-            conn.execute(
-                """
-                UPDATE protection_operations
-                SET status = 'failed', error = 'Interrupted; safe to retry',
-                    progress_message = 'Interrupted; safe to retry', finished_at = ?
-                WHERE status IN ('queued', 'running')
-                """,
-                (now,),
-            )
+            rows = conn.execute(
+                "SELECT * FROM protection_operations WHERE status IN ('queued', 'running')"
+            ).fetchall()
+            for row in rows:
+                diagnostics = _operation_diagnostics(
+                    row,
+                    now,
+                    {"exception_type": "ProcessInterrupted"},
+                )
+                conn.execute(
+                    """
+                    UPDATE protection_operations
+                    SET status = 'failed', error = 'Interrupted; safe to retry',
+                        progress_message = 'Interrupted; safe to retry',
+                        eta_seconds = NULL, diagnostics_json = ?, finished_at = ?
+                    WHERE id = ?
+                    """,
+                    (json.dumps(diagnostics, sort_keys=True), now, row["id"]),
+                )
 
     def folder_summary(self, folder_id: str) -> Dict[str, Any]:
         folder = self.get_folder(folder_id)
@@ -883,63 +923,120 @@ class ProtectionRepository:
             conn.execute(
                 """
                 UPDATE protection_operations
-                SET status = 'running', started_at = ?, progress_message = 'Starting'
+                SET status = 'running', started_at = ?, progress_message = 'Starting',
+                    eta_seconds = NULL
                 WHERE id = ?
                 """,
                 (utc_now(), operation_id),
             )
 
     def update_operation_progress(
-        self, operation_id: str, percent: float, message: str
+        self,
+        operation_id: str,
+        percent: float,
+        message: str,
+        eta_seconds: Optional[int] = None,
     ) -> None:
+        normalized_eta = None if eta_seconds is None else max(0, int(eta_seconds))
         with self._write() as conn:
             conn.execute(
                 """
                 UPDATE protection_operations
-                SET progress_percent = ?, progress_message = ?
+                SET progress_percent = ?, progress_message = ?, eta_seconds = ?
                 WHERE id = ?
                 """,
-                (max(0.0, min(float(percent), 100.0)), message, operation_id),
+                (
+                    max(0.0, min(float(percent), 100.0)),
+                    message,
+                    normalized_eta,
+                    operation_id,
+                ),
             )
 
-    def finish_operation(self, operation_id: str, result: Dict[str, Any]) -> None:
+    def finish_operation(
+        self,
+        operation_id: str,
+        result: Dict[str, Any],
+        diagnostics: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        finished_at = utc_now()
         with self._write() as conn:
+            row = conn.execute(
+                "SELECT * FROM protection_operations WHERE id = ?", (operation_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(operation_id)
+            diagnostic_summary = _operation_diagnostics(row, finished_at, diagnostics)
             conn.execute(
                 """
                 UPDATE protection_operations
                 SET status = 'completed', result_json = ?, progress_percent = 100,
-                    progress_message = 'Complete', finished_at = ?
+                    progress_message = 'Complete', eta_seconds = NULL,
+                    diagnostics_json = ?, finished_at = ?
                 WHERE id = ?
                 """,
-                (json.dumps(result, default=str, sort_keys=True), utc_now(), operation_id),
+                (
+                    json.dumps(result, default=str, sort_keys=True),
+                    json.dumps(diagnostic_summary, default=str, sort_keys=True),
+                    finished_at,
+                    operation_id,
+                ),
             )
 
-    def fail_operation(self, operation_id: str, error: str, cancelled: bool = False) -> None:
+    def fail_operation(
+        self,
+        operation_id: str,
+        error: str,
+        cancelled: bool = False,
+        diagnostics: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        finished_at = utc_now()
         with self._write() as conn:
+            row = conn.execute(
+                "SELECT * FROM protection_operations WHERE id = ?", (operation_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(operation_id)
+            diagnostic_summary = _operation_diagnostics(row, finished_at, diagnostics)
             conn.execute(
                 """
                 UPDATE protection_operations
-                SET status = ?, error = ?, progress_message = ?, finished_at = ?
+                SET status = ?, error = ?, progress_message = ?, eta_seconds = NULL,
+                    diagnostics_json = ?, finished_at = ?
                 WHERE id = ?
                 """,
                 (
                     "cancelled" if cancelled else "failed",
                     error,
                     "Cancelled" if cancelled else error,
-                    utc_now(),
+                    json.dumps(diagnostic_summary, default=str, sort_keys=True),
+                    finished_at,
                     operation_id,
                 ),
             )
 
     def request_cancel(self, operation_id: str) -> None:
         with self._write() as conn:
+            row = conn.execute(
+                "SELECT * FROM protection_operations WHERE id = ?", (operation_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(operation_id)
+            diagnostics = _stored_diagnostics(row)
+            diagnostics.setdefault(
+                "last_progress_percent", float(row["progress_percent"])
+            )
+            diagnostics.setdefault(
+                "last_progress_message", str(row["progress_message"])
+            )
             conn.execute(
                 """
                 UPDATE protection_operations
-                SET cancel_requested = 1, progress_message = 'Cancellation requested'
+                SET cancel_requested = 1, progress_message = 'Cancellation requested',
+                    eta_seconds = NULL, diagnostics_json = ?
                 WHERE id = ? AND status IN ('queued', 'running')
                 """,
-                (operation_id,),
+                (json.dumps(diagnostics, sort_keys=True), operation_id),
             )
 
     def protected_roots(self) -> List[Path]:
@@ -1007,5 +1104,55 @@ def _operation_dict(row: sqlite3.Row) -> Dict[str, Any]:
     item["request"] = json.loads(item.pop("request_json"))
     result_json = item.pop("result_json")
     item["result"] = json.loads(result_json) if result_json else None
+    diagnostics_json = item.pop("diagnostics_json", None)
+    item["diagnostics"] = json.loads(diagnostics_json) if diagnostics_json else {}
     item["cancel_requested"] = bool(item["cancel_requested"])
     return item
+
+
+def operation_failure_diagnostics(exc: BaseException) -> Dict[str, Any]:
+    """Return compact, non-secret exception metadata for an operation record."""
+    diagnostics: Dict[str, Any] = {"exception_type": type(exc).__name__}
+    current: Optional[BaseException] = exc
+    seen = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        exit_code = getattr(current, "exit_code", None)
+        if exit_code is not None:
+            diagnostics["restic_exit_code"] = int(exit_code)
+            break
+        current = current.__cause__ or current.__context__
+    return diagnostics
+
+
+def _operation_diagnostics(
+    row: sqlite3.Row,
+    finished_at: str,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    diagnostics = _stored_diagnostics(row)
+    diagnostics.setdefault("last_progress_percent", float(row["progress_percent"]))
+    diagnostics.setdefault("last_progress_message", str(row["progress_message"]))
+    started_at = row["started_at"]
+    if started_at:
+        try:
+            started = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+            finished = datetime.fromisoformat(str(finished_at).replace("Z", "+00:00"))
+            diagnostics["duration_seconds"] = max(
+                0.0, round((finished - started).total_seconds(), 3)
+            )
+        except ValueError:
+            pass
+    diagnostics.update(extra or {})
+    return diagnostics
+
+
+def _stored_diagnostics(row: sqlite3.Row) -> Dict[str, Any]:
+    raw = row["diagnostics_json"] if "diagnostics_json" in row.keys() else None
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return value if isinstance(value, dict) else {}

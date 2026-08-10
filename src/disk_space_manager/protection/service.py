@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 import stat as stat_module
 import sys
+import time
 import uuid
 from collections import defaultdict
 from pathlib import Path
@@ -15,7 +16,12 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 from disk_space_manager.executor import ActionExecutor
 
 from .keychain import KeychainSecretStore, SecretStoreError
-from .repository import ProtectionRepository, VERIFIED_REPLICA_STATES
+from .policy import is_ignored_backup_path
+from .repository import (
+    ProtectionRepository,
+    VERIFIED_REPLICA_STATES,
+    operation_failure_diagnostics,
+)
 from .restic import ResticError, ResticRunner, generation_id_from_tags
 from .volumes import MacOSVolumeProvider, VolumeError, VolumeInfo
 
@@ -28,7 +34,7 @@ class ProtectionError(RuntimeError):
     """Raised for a user-correctable protected-folder failure."""
 
 
-ProgressCallback = Optional[Callable[[float, str], None]]
+ProgressCallback = Optional[Callable[[float, str, Optional[int]], None]]
 
 
 class ProtectionService:
@@ -305,7 +311,17 @@ class ProtectionService:
             progress(0.05, "Indexing file metadata")
         entries = _scan_metadata(source, progress)
         manifest_digest = _manifest_digest(entries)
-        generation = self.repository.save_generation(folder["id"], manifest_digest, entries)
+        retired_paths = [
+            item["relative_path"]
+            for item in self.repository.list_all_files(folder["id"])
+            if is_ignored_backup_path(item["relative_path"])
+        ]
+        generation = self.repository.save_generation(
+            folder["id"],
+            manifest_digest,
+            entries,
+            retire_paths=retired_paths,
+        )
         if progress:
             progress(1.0, f"Indexed {len(entries)} files")
         return {
@@ -313,6 +329,7 @@ class ProtectionService:
             "file_count": len(entries),
             "total_bytes": sum(entry["size"] for entry in entries),
             "manifest_digest": manifest_digest,
+            "retired_ignored_files": len(retired_paths),
         }
 
     def backup(
@@ -323,34 +340,63 @@ class ProtectionService:
         operation_id: str,
         progress: ProgressCallback = None,
     ) -> Dict[str, Any]:
-        self.preflight()
-        folder = self.repository.get_folder(folder_id_or_name)
-        if not folder["recovery_confirmed"]:
-            raise ProtectionError("Recovery key confirmation is required before backup")
-        drive, volume, repo_path = self._mounted_drive(folder, drive_id)
-        generation_id = folder.get("current_generation_id")
-        if not generation_id:
-            indexed = self.index_folder(folder["id"], _scaled_progress(progress, 0, 0.1))
-            generation_id = indexed["generation"]["id"]
-            folder = self.repository.get_folder(folder["id"])
-        entries = self.repository.list_generation_entries(generation_id)
-        if not entries:
-            raise ProtectionError("There are no local files in the indexed generation")
-        source = Path(folder["source_path"])
-        self._validate_entries(source, entries)
-        required_free = sum(int(entry["size"]) for entry in entries)
-        if not drive["last_backup_at"] and volume.free_bytes < required_free + min(
-            max(required_free // 20, 1024**3), 10 * 1024**3
-        ):
-            raise ProtectionError(
-                f"{volume.name} does not have enough free space for the initial backup"
-            )
-        self._validate_repository_identity(
-            drive, repo_path, folder["id"], operation_id=operation_id
-        )
-        if progress:
-            progress(0.1, f"Backing up to {volume.name}")
+        started = time.monotonic()
+        stage = "load_folder"
+        folder: Optional[Dict[str, Any]] = None
+        drive: Optional[Dict[str, Any]] = None
+        volume: Optional[VolumeInfo] = None
+        source: Optional[Path] = None
+        repo_path: Optional[Path] = None
+        generation_id: Optional[str] = None
+        snapshot_id: Optional[str] = None
+        entries: List[Dict[str, Any]] = []
+        total_bytes = 0
+        retired_ignored_files = 0
+        restic_version: Optional[str] = None
         try:
+            folder = self.repository.get_folder(folder_id_or_name)
+            source = Path(folder["source_path"])
+            stage = "preflight"
+            preflight = self.preflight()
+            restic_version = str(preflight.get("version") or "") or None
+            if not folder["recovery_confirmed"]:
+                raise ProtectionError("Recovery key confirmation is required before backup")
+
+            stage = "resolve_drive"
+            drive, volume, repo_path = self._mounted_drive(folder, drive_id)
+            generation_id = folder.get("current_generation_id")
+            if not generation_id:
+                stage = "index_source"
+                indexed = self.index_folder(
+                    folder["id"], _scaled_progress(progress, 0, 0.1)
+                )
+                generation_id = indexed["generation"]["id"]
+                folder = self.repository.get_folder(folder["id"])
+
+            stage = "normalize_catalog"
+            generation_id, entries, retired_ignored_files = (
+                self._normalize_backup_generation(folder, generation_id)
+            )
+            if not entries:
+                raise ProtectionError("There are no local files in the indexed generation")
+            total_bytes = sum(int(entry["size"]) for entry in entries)
+
+            stage = "validate_source"
+            self._validate_entries(source, entries)
+            if not drive["last_backup_at"] and volume.free_bytes < total_bytes + min(
+                max(total_bytes // 20, 1024**3), 10 * 1024**3
+            ):
+                raise ProtectionError(
+                    f"{volume.name} does not have enough free space for the initial backup"
+                )
+            stage = "validate_repository"
+            self._validate_repository_identity(
+                drive, repo_path, folder["id"], operation_id=operation_id
+            )
+            if progress:
+                progress(0.1, f"Backing up to {volume.name}")
+
+            stage = "transfer"
             snapshot_id = self.restic.backup(
                 repo_path,
                 folder["id"],
@@ -359,6 +405,7 @@ class ProtectionService:
                 operation_id=operation_id,
                 progress=_scaled_progress(progress, 0.1, 0.72),
             )
+            stage = "validate_snapshot"
             self._validate_entries(source, entries)
             snapshot_entries = self.restic.list_snapshot(
                 repo_path,
@@ -375,6 +422,7 @@ class ProtectionService:
             )
             if progress:
                 progress(0.82, "Checking repository structure")
+            stage = "structural_check"
             self.restic.check(
                 repo_path,
                 folder["id"],
@@ -388,23 +436,124 @@ class ProtectionService:
                 "structural_checked",
             )
         except ResticError as exc:
-            if exc.exit_code not in {130, None}:
+            if drive is not None and exc.exit_code not in {130, None}:
                 self.repository.mark_replicas_suspect(drive["id"], str(exc))
-            raise ProtectionError(str(exc)) from exc
-        ActionExecutor().log_action(
-            "BACKUP",
-            source,
-            repo_path,
-            size=sum(int(entry["size"]) for entry in entries),
-            success=True,
-        )
-        return {
+            wrapped = ProtectionError(str(exc))
+            wrapped.__cause__ = exc
+            if folder is not None and source is not None:
+                details = {
+                    "operation_id": operation_id,
+                    "protected_folder_id": folder["id"],
+                    "drive_target_id": drive_id,
+                    "repository_id": drive["repository_id"] if drive else None,
+                    "volume_name": volume.name if volume else None,
+                    "generation_id": generation_id,
+                    "snapshot_id": snapshot_id,
+                    "file_count": len(entries),
+                    "total_bytes": total_bytes,
+                    "retired_ignored_files": retired_ignored_files,
+                    "stage": stage,
+                    "duration_seconds": round(time.monotonic() - started, 3),
+                    "restic_version": restic_version,
+                }
+                details.update(operation_failure_diagnostics(wrapped))
+                ActionExecutor().log_action(
+                    "BACKUP",
+                    source,
+                    repo_path,
+                    size=total_bytes,
+                    success=False,
+                    error=str(wrapped),
+                    details=details,
+                )
+            raise wrapped from exc
+        except Exception as exc:
+            if folder is not None and source is not None:
+                details = {
+                    "operation_id": operation_id,
+                    "protected_folder_id": folder["id"],
+                    "drive_target_id": drive_id,
+                    "repository_id": drive["repository_id"] if drive else None,
+                    "volume_name": volume.name if volume else None,
+                    "generation_id": generation_id,
+                    "snapshot_id": snapshot_id,
+                    "file_count": len(entries),
+                    "total_bytes": total_bytes,
+                    "retired_ignored_files": retired_ignored_files,
+                    "stage": stage,
+                    "duration_seconds": round(time.monotonic() - started, 3),
+                    "restic_version": restic_version,
+                }
+                details.update(operation_failure_diagnostics(exc))
+                ActionExecutor().log_action(
+                    "BACKUP",
+                    source,
+                    repo_path,
+                    size=total_bytes,
+                    success=False,
+                    error=str(exc),
+                    details=details,
+                )
+            raise
+
+        result = {
             "drive_target_id": drive["id"],
             "generation_id": generation_id,
             "snapshot_id": snapshot_id,
             "file_count": len(entries),
+            "total_bytes": total_bytes,
             "verification": "structural_checked",
+            "retired_ignored_files": retired_ignored_files,
+            "restic_version": restic_version,
         }
+        ActionExecutor().log_action(
+            "BACKUP",
+            source,
+            repo_path,
+            size=total_bytes,
+            success=True,
+            details={
+                **result,
+                "operation_id": operation_id,
+                "protected_folder_id": folder["id"],
+                "repository_id": drive["repository_id"],
+                "volume_name": volume.name,
+                "duration_seconds": round(time.monotonic() - started, 3),
+            },
+        )
+        return result
+
+    def _normalize_backup_generation(
+        self,
+        folder: Dict[str, Any],
+        generation_id: str,
+    ) -> Tuple[str, List[Dict[str, Any]], int]:
+        entries = self.repository.list_generation_entries(generation_id)
+        ignored_paths = {
+            entry["relative_path"]
+            for entry in entries
+            if is_ignored_backup_path(entry["relative_path"])
+        }
+        ignored_paths.update(
+            item["relative_path"]
+            for item in self.repository.list_all_files(folder["id"])
+            if is_ignored_backup_path(item["relative_path"])
+        )
+        if not ignored_paths:
+            return generation_id, entries, 0
+
+        retained_entries = [
+            entry
+            for entry in entries
+            if not is_ignored_backup_path(entry["relative_path"])
+        ]
+        generation = self.repository.save_generation(
+            folder["id"],
+            _manifest_digest(retained_entries),
+            retained_entries,
+            retire_paths=ignored_paths,
+        )
+        return generation["id"], retained_entries, len(ignored_paths)
 
     def verify(
         self,
@@ -453,8 +602,10 @@ class ProtectionService:
                     group_start = completed
                     group_size = len(snapshot_files)
                     group_progress = (
-                        lambda ratio, message, start=group_start, size=group_size: progress(
-                            0.2 + 0.8 * (start + ratio * size) / max(total, 1), message
+                        lambda ratio, message, eta_seconds=None, start=group_start, size=group_size: progress(
+                            0.2 + 0.8 * (start + ratio * size) / max(total, 1),
+                            message,
+                            eta_seconds,
                         )
                         if progress
                         else None
@@ -739,8 +890,10 @@ class ProtectionService:
                 group_start = completed
                 group_size = len(snapshot_files)
                 group_progress = (
-                    lambda ratio, message, start=group_start, size=group_size: progress(
-                        (start + ratio * size) / len(files), message
+                    lambda ratio, message, eta_seconds=None, start=group_start, size=group_size: progress(
+                        (start + ratio * size) / len(files),
+                        message,
+                        eta_seconds,
                     )
                     if progress
                     else None
@@ -1146,6 +1299,8 @@ def _scan_metadata(source: Path, progress: ProgressCallback = None) -> List[Dict
             for item in iterator:
                 if item.name == CONTROL_DIRECTORY and Path(item.path).parent == source:
                     continue
+                if is_ignored_backup_path(item.name):
+                    continue
                 try:
                     if item.is_dir(follow_symlinks=False):
                         pending.append(Path(item.path))
@@ -1315,7 +1470,19 @@ def _scaled_progress(
 ) -> ProgressCallback:
     if not callback:
         return None
-    return lambda ratio, message: callback(start + max(0.0, min(ratio, 1.0)) * span, message)
+
+    def scaled(
+        ratio: float,
+        message: str,
+        eta_seconds: Optional[int] = None,
+    ) -> None:
+        callback(
+            start + max(0.0, min(ratio, 1.0)) * span,
+            message,
+            eta_seconds,
+        )
+
+    return scaled
 
 
 def _write_recovery_marker(

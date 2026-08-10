@@ -378,6 +378,12 @@ Logging behavior:
 - Log entries include timestamp, action type, source, optional target, size,
   success or failure, optional error text, and dry-run status.
 - Failure to write the log file must not abort the underlying operation.
+- A failed action-log append emits a standard warning so loss of audit output
+  is visible while the underlying operation continues.
+- Protected-folder operations persist compact diagnostics in their SQLite
+  history: duration, last progress, exception type, and Restic exit code when
+  available. Backup audit entries include operation, drive, generation, and
+  snapshot identifiers without raw Restic output or secrets.
 
 ## Safety Requirements
 

@@ -1,6 +1,7 @@
 """Action execution with safety checks and logging."""
 
 import json
+import logging
 import shutil
 from pathlib import Path
 from datetime import datetime
@@ -8,6 +9,9 @@ from typing import List, Dict, Optional, Callable
 
 from .config import ACTION_LOG_FILE
 from .utils import safe_delete, preserve_structure_move, format_size
+
+
+logger = logging.getLogger(__name__)
 
 
 class ActionExecutor:
@@ -58,7 +62,11 @@ class ActionExecutor:
                     f.write(" | DRY-RUN")
                 f.write("\n")
         except (IOError, PermissionError):
-            pass  # Log file write failed, but continue
+            logger.warning(
+                "Unable to append to action log %s",
+                self.log_file,
+                exc_info=True,
+            )
         
         if self.log_callback:
             self.log_callback(log_entry)

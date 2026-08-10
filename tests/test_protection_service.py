@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -7,9 +8,17 @@ from disk_space_manager.protection.service import (
     ProtectionError,
     ProtectionService,
     _atomic_place_no_overwrite,
+    _scaled_progress,
 )
 
 from .protection_fakes import FakeRestic, FakeVolumes, MemorySecretStore, fake_volume
+
+
+@pytest.fixture(autouse=True)
+def _use_temporary_action_log(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "disk_space_manager.executor.ACTION_LOG_FILE", tmp_path / "actions.log"
+    )
 
 
 def _service(tmp_path):
@@ -254,3 +263,120 @@ def test_enrollment_marker_failure_rolls_back_and_is_retryable(tmp_path, monkeyp
     monkeypatch.setattr(service_module, "_write_recovery_marker", real_writer)
     drive = service.enroll_drive(folder["id"], Path(volume.mount_path))
     assert drive["volume_uuid"] == "volume-1"
+
+
+def test_index_backup_and_audit_ignore_ds_store_but_keep_other_dotfiles(
+    tmp_path, monkeypatch
+):
+    action_log = tmp_path / "actions.log"
+    monkeypatch.setattr("disk_space_manager.executor.ACTION_LOG_FILE", action_log)
+    service, source, volumes, restic = _service(tmp_path)
+    folder, first, _ = _create_and_enroll(service, source, volumes)
+    (source / ".DS_Store").write_bytes(b"finder metadata")
+    (source / "nested" / ".DS_Store").write_bytes(b"nested finder metadata")
+    (source / ".project-config").write_text("keep me")
+
+    indexed = service.index_folder(folder["id"])
+    catalog_paths = {
+        item["relative_path"] for item in service.repository.list_all_files(folder["id"])
+    }
+    assert indexed["file_count"] == 3
+    assert catalog_paths == {".project-config", "nested/two.bin", "one.bin"}
+
+    volumes.mount_only("volume-1")
+    result = service.backup(folder["id"], first["id"], operation_id="backup-audit")
+    snapshot_paths = {
+        item["relative_path"]
+        for item in restic.list_snapshot(
+            Path(volumes.volumes["volume-1"].mount_path),
+            folder["id"],
+            result["snapshot_id"],
+        )
+    }
+    assert snapshot_paths == catalog_paths
+    assert (source / ".DS_Store").exists()
+    assert (source / "nested" / ".DS_Store").exists()
+
+    backup_line = next(
+        line for line in action_log.read_text().splitlines() if " | BACKUP | " in line
+    )
+    evidence = json.loads(backup_line.split(" | EVIDENCE: ", 1)[1])
+    assert evidence["operation_id"] == "backup-audit"
+    assert evidence["generation_id"] == result["generation_id"]
+    assert evidence["snapshot_id"] == result["snapshot_id"]
+    assert evidence["file_count"] == 3
+    assert evidence["total_bytes"] == result["total_bytes"]
+    assert evidence["verification"] == "structural_checked"
+    assert evidence["repository_id"] == first["repository_id"]
+    assert evidence["restic_version"] == "0.19.1"
+    assert evidence["duration_seconds"] >= 0
+    assert "test-recovery-key" not in backup_line
+
+
+def test_legacy_ds_store_generation_is_retired_without_accepting_changed_files(
+    tmp_path, monkeypatch
+):
+    action_log = tmp_path / "actions.log"
+    monkeypatch.setattr("disk_space_manager.executor.ACTION_LOG_FILE", action_log)
+    service, source, volumes, _ = _service(tmp_path)
+    folder, first, _ = _create_and_enroll(service, source, volumes)
+    ds_store = source / ".DS_Store"
+    ds_store.write_bytes(b"legacy finder metadata")
+
+    def entry(path):
+        file_stat = path.stat()
+        return {
+            "relative_path": str(path.relative_to(source)),
+            "file_type": "file",
+            "size": file_stat.st_size,
+            "mtime_ns": file_stat.st_mtime_ns,
+            "ctime_ns": file_stat.st_ctime_ns,
+            "inode": file_stat.st_ino,
+            "device": file_stat.st_dev,
+        }
+
+    legacy_generation = service.repository.save_generation(
+        folder["id"],
+        "legacy-manifest",
+        [entry(source / "one.bin"), entry(source / "nested" / "two.bin"), entry(ds_store)],
+    )
+    (source / "one.bin").write_bytes(b"changed after the legacy index")
+    volumes.mount_only("volume-1")
+
+    with pytest.raises(ProtectionError, match="changed"):
+        service.backup(folder["id"], first["id"], operation_id="legacy-failure")
+
+    assert ds_store.exists()
+    assert ".DS_Store" not in {
+        item["relative_path"] for item in service.repository.list_all_files(folder["id"])
+    }
+    assert ".DS_Store" in {
+        item["relative_path"]
+        for item in service.repository.list_generation_entries(legacy_generation["id"])
+    }
+    failed_line = next(
+        line
+        for line in action_log.read_text().splitlines()
+        if " | BACKUP | " in line and " | FAILED" in line
+    )
+    evidence = json.loads(failed_line.split(" | EVIDENCE: ", 1)[1])
+    assert evidence["operation_id"] == "legacy-failure"
+    assert evidence["stage"] == "validate_source"
+    assert evidence["file_count"] == 2
+    assert evidence["total_bytes"] > 0
+    assert evidence["exception_type"] == "ProtectionError"
+    assert "test-recovery-key" not in failed_line
+
+
+def test_scaled_protection_progress_preserves_transfer_eta():
+    events = []
+    callback = lambda ratio, message, eta=None: events.append((ratio, message, eta))
+
+    scaled = _scaled_progress(callback, 0.1, 0.72)
+    scaled(0.5, "Processing video.bin", 13)
+    scaled(1.0, "Restic operation complete", None)
+
+    assert events == [
+        (pytest.approx(0.46), "Processing video.bin", 13),
+        (pytest.approx(0.82), "Restic operation complete", None),
+    ]

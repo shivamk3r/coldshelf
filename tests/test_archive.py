@@ -388,3 +388,14 @@ class TestExecutorArchiveToLocalFolder:
         executor.archive_files(files, target, src, confirm=False)
 
         assert (target / "a" / "b" / "deep.txt").exists()
+
+
+def test_action_log_write_failure_warns_without_aborting(tmp_path, caplog):
+    executor = ActionExecutor()
+    executor.log_file = tmp_path / "unwritable-actions.log"
+
+    with patch("builtins.open", side_effect=PermissionError("read-only")):
+        executor.log_action("BACKUP", tmp_path / "source", success=False, error="failed")
+
+    assert len(executor.action_log) == 1
+    assert "Unable to append to action log" in caplog.text

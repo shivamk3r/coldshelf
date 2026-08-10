@@ -1,14 +1,21 @@
 """Queued protected-folder operations for the authenticated web API."""
 
+import logging
 from concurrent.futures import Future
 from threading import RLock
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from disk_space_manager.protection.repository import ProtectionRepository
+from disk_space_manager.protection.repository import (
+    ProtectionRepository,
+    operation_failure_diagnostics,
+)
 from disk_space_manager.protection.service import ProtectionError, ProtectionService
 
 from .io_queue import HeavyIOQueue
 from .schemas import ProtectionOperationRequest
+
+
+logger = logging.getLogger(__name__)
 
 
 class OperationCancelled(RuntimeError):
@@ -54,7 +61,10 @@ class ProtectionOperationManager:
             future = self._futures.get(operation_id)
         if future and future.cancel():
             self.repository.fail_operation(
-                operation_id, "Cancelled before the operation started", cancelled=True
+                operation_id,
+                "Cancelled before the operation started",
+                cancelled=True,
+                diagnostics={"exception_type": "CancelledBeforeStart"},
             )
         return self.repository.get_operation(operation_id)
 
@@ -70,12 +80,21 @@ class ProtectionOperationManager:
             return
         self.repository.start_operation(operation_id)
 
-        def progress(ratio: float, message: str) -> None:
+        def progress(
+            ratio: float,
+            message: str,
+            eta_seconds: Optional[int] = None,
+        ) -> None:
             current = self.repository.get_operation(operation_id)
             if current["cancel_requested"]:
                 self.service.restic.cancel(operation_id)
                 raise OperationCancelled("Operation cancelled")
-            self.repository.update_operation_progress(operation_id, ratio * 100, message)
+            self.repository.update_operation_progress(
+                operation_id,
+                ratio * 100,
+                message,
+                eta_seconds,
+            )
 
         try:
             if request.kind == "index":
@@ -119,10 +138,34 @@ class ProtectionOperationManager:
                 raise ProtectionError(f"Unsupported operation: {request.kind}")
             self.repository.finish_operation(operation_id, result)
         except OperationCancelled as exc:
-            self.repository.fail_operation(operation_id, str(exc), cancelled=True)
+            self.repository.fail_operation(
+                operation_id,
+                str(exc),
+                cancelled=True,
+                diagnostics=operation_failure_diagnostics(exc),
+            )
         except Exception as exc:
+            if isinstance(exc, ProtectionError):
+                logger.warning(
+                    "Protection operation %s (%s) failed: %s",
+                    operation_id,
+                    request.kind,
+                    exc,
+                )
+            else:
+                logger.exception(
+                    "Protection operation %s (%s) failed unexpectedly",
+                    operation_id,
+                    request.kind,
+                )
             cancelled = self.repository.get_operation(operation_id)["cancel_requested"]
-            self.repository.fail_operation(operation_id, str(exc), cancelled=cancelled)
+            self.repository.fail_operation(
+                operation_id,
+                str(exc),
+                cancelled=cancelled,
+                diagnostics=operation_failure_diagnostics(exc),
+            )
+
     def _forget_future(self, operation_id: str) -> None:
         with self._lock:
             self._futures.pop(operation_id, None)

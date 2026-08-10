@@ -63,11 +63,17 @@ def test_schema_generation_replica_status_and_operation_lifecycle(tmp_path):
 
     operation = repository.create_operation(folder["id"], "index", {})
     repository.start_operation(operation["id"])
-    repository.update_operation_progress(operation["id"], 25, "working")
+    repository.update_operation_progress(operation["id"], 25, "working", 42)
+    running = repository.get_operation(operation["id"])
+    assert running["eta_seconds"] == 42
     repository.finish_operation(operation["id"], {"ok": True})
     completed = repository.get_operation(operation["id"])
     assert completed["status"] == "completed"
     assert completed["result"] == {"ok": True}
+    assert completed["eta_seconds"] is None
+    assert completed["diagnostics"]["last_progress_percent"] == 25.0
+    assert completed["diagnostics"]["last_progress_message"] == "working"
+    assert "duration_seconds" in completed["diagnostics"]
 
 
 def test_unsupported_schema_version_fails_closed(tmp_path):
@@ -78,6 +84,95 @@ def test_unsupported_schema_version_fails_closed(tmp_path):
 
     with pytest.raises(RuntimeError, match="Unsupported"):
         ProtectionRepository(db_path)
+
+
+def test_schema_one_operation_history_migrates_in_place(tmp_path):
+    db_path = tmp_path / "version-one.sqlite3"
+    connection = sqlite3.connect(db_path)
+    connection.executescript(
+        """
+        CREATE TABLE protection_operations (
+            id TEXT PRIMARY KEY,
+            protected_folder_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            status TEXT NOT NULL,
+            drive_target_id TEXT,
+            request_json TEXT NOT NULL,
+            result_json TEXT,
+            error TEXT,
+            progress_percent REAL NOT NULL DEFAULT 0,
+            progress_message TEXT NOT NULL DEFAULT 'Queued',
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            cancel_requested INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT INTO protection_operations (
+            id, protected_folder_id, kind, status, request_json,
+            progress_percent, progress_message, created_at
+        ) VALUES ('legacy-operation', 'folder', 'backup', 'queued', '{}', 0, 'Queued',
+                  '2026-01-01T00:00:00Z');
+        PRAGMA user_version = 1;
+        """
+    )
+    connection.close()
+
+    repository = ProtectionRepository(db_path)
+    operation = repository.get_operation("legacy-operation")
+
+    assert operation["eta_seconds"] is None
+    assert operation["diagnostics"] == {}
+    with sqlite3.connect(db_path) as migrated:
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 2
+
+
+def test_failed_cancelled_and_interrupted_operations_keep_diagnostics(tmp_path):
+    repository = ProtectionRepository(tmp_path / "protected.sqlite3")
+    source = tmp_path / "source"
+    source.mkdir()
+    folder = repository.create_folder("folder", "Large files", source, 2, True)
+
+    failed = repository.create_operation(folder["id"], "backup", {})
+    repository.start_operation(failed["id"])
+    repository.update_operation_progress(failed["id"], 55, "Processing files", 12)
+    repository.fail_operation(
+        failed["id"],
+        "Restic failed",
+        diagnostics={"exception_type": "ProtectionError", "restic_exit_code": 3},
+    )
+    failed_result = repository.get_operation(failed["id"])
+    assert failed_result["status"] == "failed"
+    assert failed_result["eta_seconds"] is None
+    assert failed_result["diagnostics"]["last_progress_percent"] == 55.0
+    assert failed_result["diagnostics"]["last_progress_message"] == "Processing files"
+    assert failed_result["diagnostics"]["exception_type"] == "ProtectionError"
+    assert failed_result["diagnostics"]["restic_exit_code"] == 3
+
+    cancelled = repository.create_operation(folder["id"], "backup", {})
+    repository.start_operation(cancelled["id"])
+    repository.update_operation_progress(cancelled["id"], 10, "Starting transfer", 30)
+    repository.request_cancel(cancelled["id"])
+    repository.fail_operation(
+        cancelled["id"],
+        "Operation cancelled",
+        cancelled=True,
+        diagnostics={"exception_type": "OperationCancelled"},
+    )
+    cancelled_result = repository.get_operation(cancelled["id"])
+    assert cancelled_result["status"] == "cancelled"
+    assert cancelled_result["eta_seconds"] is None
+    assert cancelled_result["diagnostics"]["exception_type"] == "OperationCancelled"
+    assert cancelled_result["diagnostics"]["last_progress_message"] == "Starting transfer"
+
+    interrupted = repository.create_operation(folder["id"], "backup", {})
+    repository.start_operation(interrupted["id"])
+    repository.update_operation_progress(interrupted["id"], 70, "Checking repository", 5)
+    repository.fail_interrupted_operations()
+    interrupted_result = repository.get_operation(interrupted["id"])
+    assert interrupted_result["status"] == "failed"
+    assert interrupted_result["eta_seconds"] is None
+    assert interrupted_result["diagnostics"]["exception_type"] == "ProcessInterrupted"
+    assert interrupted_result["diagnostics"]["last_progress_message"] == "Checking repository"
 
 
 @pytest.mark.parametrize("relative", ["../escape", "/absolute", ""])

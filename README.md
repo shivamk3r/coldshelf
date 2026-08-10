@@ -120,6 +120,11 @@ enrolled drive, per-file replica receipts, queued progress, cancellation, and
 fresh-Mac recovery import. Mounted disks are polled every five seconds only
 while that dashboard section is open; there is no background agent.
 
+During a protected-folder backup, the dashboard shows Restic's file-transfer
+time estimate when one is available, then switches to an explicit structural
+check phase without guessing its duration. Finder's `.DS_Store` files are
+excluded from protected catalogs and new snapshots at every directory depth.
+
 ### Protected Folders (macOS)
 
 Protected folders use one independent encrypted Restic repository per enrolled
@@ -393,6 +398,12 @@ dry-run state.
 The web dashboard also stores job history, report summaries, actionable
 candidates, and action results in SQLite. It does not store every scanned file,
 which keeps the database bounded for large scans.
+
+Protected-folder operation history in
+`~/.disk-space-manager-protected.sqlite3` includes duration, last progress,
+failure type, and Restic exit code when available. Backup audit entries include
+operation, drive, generation, and snapshot identifiers for correlation. Raw
+Restic output, recovery keys, and API tokens are never added to these records.
 
 ## Architecture
 

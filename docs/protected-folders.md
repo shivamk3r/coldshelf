@@ -24,6 +24,9 @@ separate sessions. Do not run the legacy `archive` command on this folder.
   when you want bit-for-bit readback confidence.
 - No automatic `forget` or `prune` is performed. Eviction leaves no symlink or
   stub. Restore never overwrites an existing path.
+- `.DS_Store` is ignored when indexing, backing up, validating snapshots, and
+  rebuilding a catalog. Existing historical snapshots are not rewritten or
+  pruned, and source metadata files are not deleted.
 
 Two disks stored beside each other do not protect against theft, fire, or a
 shared-location accident. Store them separately when offline.
@@ -187,6 +190,11 @@ identity, structural/full verification dates, a searchable catalog, per-drive
 replica columns, progress, cancellation, and the same guarded actions. While
 this section is open it checks mounted volumes every five seconds and prompts
 for pending work. It installs no daemon or background agent.
+
+The time remaining shown during backup comes from Restic and applies only to
+the file-transfer phase. The following structural repository check is labeled
+separately because Restic does not provide a dependable end-to-end estimate
+for that phase.
 
 ## 10. Fresh-Mac recovery from either disk
 

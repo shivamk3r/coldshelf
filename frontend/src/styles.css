@@ -769,6 +769,11 @@ p {
   color: #607181;
 }
 
+.operation-panel .operation-eta {
+  color: #047857;
+  font-weight: 750;
+}
+
 .status-pill.cancelled {
   background: #d97706;
 }

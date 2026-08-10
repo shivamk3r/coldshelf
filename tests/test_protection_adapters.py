@@ -8,7 +8,12 @@ from types import SimpleNamespace
 import pytest
 
 from disk_space_manager.protection.keychain import KeychainSecretStore
-from disk_space_manager.protection.restic import ResticError, ResticRunner
+from disk_space_manager.protection.restic import (
+    ResticError,
+    ResticResult,
+    ResticRunner,
+    _emit_progress,
+)
 from disk_space_manager.protection.volumes import MacOSVolumeProvider
 
 
@@ -28,6 +33,7 @@ elif command == "fail":
 elif command == "ls":
     print(json.dumps({"struct_type": "snapshot", "id": "snapshot"}))
     print(json.dumps({"struct_type": "node", "type": "file", "path": "/a.bin", "size": 7}))
+    print(json.dumps({"struct_type": "node", "type": "file", "path": "/nested/.DS_Store", "size": 8}))
 else:
     print(json.dumps({"message_type": "summary"}))
 """
@@ -94,6 +100,64 @@ def test_restic_cancel_sends_sigint_without_blocking():
     runner._active["operation"] = process
     assert runner.cancel("operation")
     assert process.signals == [signal.SIGINT]
+
+
+def test_restic_backup_exclusion_and_transfer_eta_are_forwarded(tmp_path):
+    runner = ResticRunner()
+    captured = {}
+
+    def run(args, **kwargs):
+        captured["args"] = args
+        captured["include_eta"] = kwargs["include_eta"]
+        return ResticResult(
+            exit_code=0,
+            messages=[{"message_type": "summary", "snapshot_id": "snapshot"}],
+            output="",
+        )
+
+    runner.run = run
+    assert runner.backup(
+        tmp_path / "repo",
+        "folder",
+        "generation",
+        tmp_path,
+        operation_id="backup",
+    ) == "snapshot"
+    assert "--exclude=**/.DS_Store" in captured["args"]
+    assert captured["include_eta"] is True
+
+    events = []
+    callback = lambda ratio, message, eta: events.append((ratio, message, eta))
+    _emit_progress(
+        {
+            "message_type": "status",
+            "percent_done": 0.5,
+            "current_files": ["video.bin"],
+            "seconds_remaining": 12.2,
+        },
+        callback,
+        include_eta=True,
+    )
+    _emit_progress(
+        {
+            "message_type": "status",
+            "percent_done": 0.6,
+            "seconds_remaining": "unknown",
+        },
+        callback,
+        include_eta=True,
+    )
+    _emit_progress(
+        {"message_type": "summary"},
+        callback,
+        include_eta=True,
+    )
+
+    assert events == [
+        (0.5, "Processing video.bin", 13),
+        (0.6, "Processing files", None),
+        (1.0, "Restic operation complete", None),
+    ]
 
 
 def test_keychain_abstraction_round_trip(monkeypatch):

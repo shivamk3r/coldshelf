@@ -235,6 +235,8 @@ class ProtectionOperation(BaseModel):
     error: Optional[str] = None
     progress_percent: float
     progress_message: str
+    eta_seconds: Optional[int] = None
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
     created_at: str
     started_at: Optional[str] = None
     finished_at: Optional[str] = None

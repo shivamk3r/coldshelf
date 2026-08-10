@@ -29,6 +29,9 @@ def test_real_restic_backup_check_catalog_and_restore(tmp_path):
     source.mkdir()
     (source / "nested").mkdir()
     (source / "nested" / "sample.bin").write_bytes(b"real restic round trip")
+    (source / ".DS_Store").write_bytes(b"finder metadata")
+    (source / "nested" / ".DS_Store").write_bytes(b"nested finder metadata")
+    (source / ".project-config").write_text("keep this dotfile")
     repository = tmp_path / "repository"
     restore_target = tmp_path / "restore"
     folder_id = str(uuid.uuid4())
@@ -47,11 +50,18 @@ def test_real_restic_backup_check_catalog_and_restore(tmp_path):
     )
     entries = runner.list_snapshot(repository, folder_id, snapshot_id)
     assert [(item["relative_path"], item["size"]) for item in entries] == [
-        ("nested/sample.bin", len(b"real restic round trip"))
+        (".project-config", len("keep this dotfile")),
+        ("nested/sample.bin", len(b"real restic round trip")),
     ]
     source_stat = (source / "nested" / "sample.bin").stat()
+    config_stat = (source / ".project-config").stat()
     _validate_snapshot_manifest(
         [
+            {
+                "relative_path": ".project-config",
+                "size": config_stat.st_size,
+                "mtime_ns": config_stat.st_mtime_ns,
+            },
             {
                 "relative_path": "nested/sample.bin",
                 "size": source_stat.st_size,

@@ -235,6 +235,8 @@ export interface ProtectionOperation {
   error?: string | null;
   progress_percent: number;
   progress_message: string;
+  eta_seconds?: number | null;
+  diagnostics: Record<string, unknown>;
   cancel_requested: boolean;
   created_at: string;
   started_at?: string | null;

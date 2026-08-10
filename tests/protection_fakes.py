@@ -4,6 +4,7 @@ import os
 import uuid
 from pathlib import Path
 
+from disk_space_manager.protection.policy import is_ignored_backup_path
 from disk_space_manager.protection.restic import ResticError
 from disk_space_manager.protection.volumes import VolumeInfo
 
@@ -119,7 +120,11 @@ class FakeRestic:
         contents = {}
         mtimes = {}
         for path in sorted(source_path.rglob("*")):
-            if not path.is_file() or ".disk-space-manager" in path.parts:
+            if (
+                not path.is_file()
+                or ".disk-space-manager" in path.parts
+                or is_ignored_backup_path(path.name)
+            ):
                 continue
             relative = str(path.relative_to(source_path))
             file_stat = path.stat()
@@ -148,7 +153,11 @@ class FakeRestic:
         return snapshot_id
 
     def list_snapshot(self, repository, folder_id, snapshot_id, operation_id=None):
-        return list(self.snapshot_entries[snapshot_id])
+        return [
+            entry
+            for entry in self.snapshot_entries[snapshot_id]
+            if not is_ignored_backup_path(entry["relative_path"])
+        ]
 
     def snapshots(self, repository, folder_id, required_tags=None, operation_id=None):
         required = set(required_tags or [])

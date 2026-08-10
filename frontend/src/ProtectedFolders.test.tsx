@@ -99,6 +99,7 @@ beforeEach(() => {
     request: { dry_run: true },
     progress_percent: 0,
     progress_message: "Queued",
+    diagnostics: {},
     cancel_requested: false,
     created_at: "now"
   });
@@ -138,4 +139,52 @@ test("polls mounted volumes every five seconds only while mounted", async () => 
   });
   expect(vi.mocked(api.listMountedVolumes).mock.calls.length).toBe(callsAfterUnmount);
   vi.useRealTimers();
+});
+
+test("shows Restic transfer ETA and clears it for the structural check", async () => {
+  let onOperation: ((operation: Awaited<ReturnType<typeof api.createProtectionOperation>>) => void) | undefined;
+  vi.mocked(api.createProtectionOperation).mockResolvedValueOnce({
+    id: "operation-eta",
+    protected_folder_id: folder.id,
+    kind: "backup",
+    status: "running",
+    drive_target_id: drive.id,
+    request: { kind: "backup", drive_target_id: drive.id },
+    progress_percent: 40,
+    progress_message: "Processing video.bin",
+    eta_seconds: 125,
+    diagnostics: {},
+    cancel_requested: false,
+    created_at: "now",
+    started_at: "now"
+  });
+  vi.mocked(api.openProtectionEvents).mockImplementationOnce((_token, _operationId, callback) => {
+    onOperation = callback;
+    return { close: vi.fn() } as unknown as EventSource;
+  });
+
+  render(<ProtectedFolders token="secret" />);
+  await screen.findByRole("heading", { name: "Large Files" });
+  await userEvent.click(screen.getByRole("button", { name: "Back up" }));
+
+  expect(await screen.findByText("About 2m 5s of file transfer remaining.")).toBeInTheDocument();
+  act(() => {
+    onOperation?.({
+      id: "operation-eta",
+      protected_folder_id: folder.id,
+      kind: "backup",
+      status: "running",
+      drive_target_id: drive.id,
+      request: { kind: "backup", drive_target_id: drive.id },
+      progress_percent: 82,
+      progress_message: "Checking repository structure",
+      eta_seconds: null,
+      diagnostics: {},
+      cancel_requested: false,
+      created_at: "now",
+      started_at: "now"
+    });
+  });
+  expect(screen.getByText("Checking repository structure")).toBeInTheDocument();
+  expect(screen.queryByText(/file transfer remaining/)).not.toBeInTheDocument();
 });

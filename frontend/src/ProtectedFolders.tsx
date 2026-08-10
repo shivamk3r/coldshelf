@@ -270,6 +270,11 @@ export function ProtectedFolders({ token }: { token: string }) {
                     <strong>{operation.kind}</strong>
                     <span className={`status-pill ${operation.status}`}>{operation.status}</span>
                     <p>{operation.progress_message}</p>
+                    {operation.kind === "backup" && busy && operation.eta_seconds != null && (
+                      <p className="operation-eta">
+                        About {formatEtaDuration(operation.eta_seconds)} of file transfer remaining.
+                      </p>
+                    )}
                   </div>
                   <div className="progress-wrap"><div style={{ width: `${operation.progress_percent}%` }} /></div>
                   {busy && (
@@ -507,6 +512,16 @@ function formatBytes(value: number): string {
 
 function formatDate(value?: string | null): string {
   return value ? new Date(value).toLocaleString() : "Never";
+}
+
+function formatEtaDuration(value: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(value));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
 function shortPath(path: string): string {

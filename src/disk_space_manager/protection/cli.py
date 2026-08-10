@@ -9,6 +9,7 @@ import click
 
 from disk_space_manager.utils import format_size
 
+from .repository import operation_failure_diagnostics
 from .service import ProtectionError, ProtectionService
 
 
@@ -26,8 +27,24 @@ def _render(value: Any) -> None:
     click.echo(json.dumps(value, indent=2, default=str, sort_keys=True))
 
 
-def _progress(ratio: float, message: str) -> None:
-    click.echo(f"[{max(0, min(int(ratio * 100), 100)):3d}%] {message}")
+def _progress(
+    ratio: float,
+    message: str,
+    eta_seconds: Optional[int] = None,
+) -> None:
+    eta = f" | about {_format_eta(eta_seconds)} remaining" if eta_seconds is not None else ""
+    click.echo(f"[{max(0, min(int(ratio * 100), 100)):3d}%] {message}{eta}")
+
+
+def _format_eta(seconds: int) -> str:
+    seconds = max(0, int(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m {seconds}s"
+    return f"{seconds}s"
 
 
 def _raise_click_error(exc: Exception) -> None:
@@ -39,7 +56,9 @@ def _recorded_operation(
     folder: str,
     kind: str,
     request: Dict[str, Any],
-    action: Callable[[str, Callable[[float, str], None]], Dict[str, Any]],
+    action: Callable[
+        [str, Callable[[float, str, Optional[int]], None]], Dict[str, Any]
+    ],
 ) -> Dict[str, Any]:
     """Run a CLI operation with the same durable history used by the web app."""
     folder_info = service.repository.get_folder(folder)
@@ -53,9 +72,18 @@ def _recorded_operation(
     )
     service.repository.start_operation(operation_id)
 
-    def progress(ratio: float, message: str) -> None:
-        service.repository.update_operation_progress(operation_id, ratio * 100, message)
-        _progress(ratio, message)
+    def progress(
+        ratio: float,
+        message: str,
+        eta_seconds: Optional[int] = None,
+    ) -> None:
+        service.repository.update_operation_progress(
+            operation_id,
+            ratio * 100,
+            message,
+            eta_seconds,
+        )
+        _progress(ratio, message, eta_seconds)
 
     try:
         result = action(operation_id, progress)
@@ -65,6 +93,7 @@ def _recorded_operation(
             operation_id,
             message,
             cancelled=isinstance(exc, KeyboardInterrupt) or "cancel" in message.casefold(),
+            diagnostics=operation_failure_diagnostics(exc),
         )
         raise
     service.repository.finish_operation(operation_id, result)

@@ -99,6 +99,8 @@ def test_authenticated_protected_folder_recovery_confirmation_catalog_and_job(tm
         operation = _wait_for_operation(client, operation_response.json()["id"])
         assert operation["status"] == "completed", operation
         assert operation["result"]["file_count"] == 1
+        assert operation["eta_seconds"] is None
+        assert operation["diagnostics"]["last_progress_message"] == "Indexed 1 files"
 
         detail = client.get(
             f"/api/protection/folders/{created['id']}", headers=_auth()
@@ -146,7 +148,10 @@ def test_authenticated_protected_folder_recovery_confirmation_catalog_and_job(tm
         assert deleted.json()["repositories_left_intact"] == 1
 
 
-def test_fresh_catalog_import_from_one_disk(tmp_path):
+def test_fresh_catalog_import_from_one_disk(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "disk_space_manager.executor.ACTION_LOG_FILE", tmp_path / "actions.log"
+    )
     app, source, volume, restic, volumes = _app(tmp_path)
     with TestClient(app) as client:
         created = client.post(
@@ -175,7 +180,17 @@ def test_fresh_catalog_import_from_one_disk(tmp_path):
             headers=_auth(),
             json={"kind": "backup", "drive_target_id": drive["id"]},
         ).json()
-        assert _wait_for_operation(client, backup_operation["id"])["status"] == "completed"
+        completed_backup = _wait_for_operation(client, backup_operation["id"])
+        assert completed_backup["status"] == "completed"
+        restic.snapshot_entries[completed_backup["result"]["snapshot_id"]].append(
+            {
+                "relative_path": ".DS_Store",
+                "size": 12,
+                "mtime": None,
+                "mtime_ns": 0,
+                "snapshot_id": completed_backup["result"]["snapshot_id"],
+            }
+        )
 
     fresh_repository = ProtectionRepository(tmp_path / "fresh-protected.sqlite3")
     fresh_service = ProtectionService(
@@ -234,6 +249,7 @@ def test_fresh_catalog_import_from_one_disk(tmp_path):
         assert response.status_code == 200, response.text
         detail = response.json()
         assert detail["folder"]["id"] == created["id"]
+        assert [item["relative_path"] for item in detail["files"]] == ["catalog.bin"]
         assert detail["files"][0]["relative_path"] == "catalog.bin"
         assert detail["files"][0]["local_state"] == "evicted"
         assert detail["files"][0]["verified_replica_count"] == 1
