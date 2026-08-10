@@ -53,10 +53,52 @@ class ActionResponse(BaseModel):
     job_id: str
     action_type: str
     dry_run: bool
+    target_path: Optional[str] = None
     selected_count: int
     skipped_count: int
     result: Dict[str, Any]
     created_at: str
+
+
+class ActionsListResponse(BaseModel):
+    actions: List[ActionResponse]
+
+
+class DirectoryLocation(BaseModel):
+    name: str
+    path: str
+    kind: str
+    readable: bool = True
+    symlink: bool = False
+
+
+class DirectoryListResponse(BaseModel):
+    current_path: str
+    parent_path: Optional[str] = None
+    roots: List[DirectoryLocation]
+    directories: List[DirectoryLocation]
+
+
+class ArchiveTargetInfo(BaseModel):
+    name: str
+    path: str
+    available_space: int
+    device: str = ""
+    filesystem: str = ""
+
+
+class ArchiveTargetsResponse(BaseModel):
+    drives: List[ArchiveTargetInfo]
+    recommended_path: Optional[str] = None
+
+
+class ProtectionPreflightResponse(BaseModel):
+    platform: str
+    supported: bool
+    ready: bool
+    minimum_restic_version: str
+    restic_version: Optional[str] = None
+    message: str
 
 
 class ProtectedFolderCreateRequest(BaseModel):

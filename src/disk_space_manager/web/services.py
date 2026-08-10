@@ -14,6 +14,7 @@ from disk_space_manager.archive_targets import (
     resolve_archive_target,
 )
 from disk_space_manager.duplicates import DuplicateDetector, empty_duplicate_report
+from disk_space_manager.drive_detector import detect_external_drives
 from disk_space_manager.executor import ActionExecutor
 from disk_space_manager.scanner import DiskScanner, ScanProgress
 from disk_space_manager.protection.repository import ProtectionRepository
@@ -25,6 +26,106 @@ from .schemas import ActionRequest, JobCreateRequest
 
 class ServiceError(RuntimeError):
     """Raised for user-correctable service errors."""
+
+
+def browse_directories(path: Optional[str], show_hidden: bool = False) -> Dict[str, Any]:
+    """List directories for the authenticated server-side folder picker."""
+    requested = Path(path).expanduser() if path else Path.home()
+    try:
+        current = requested.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ServiceError(f"Folder does not exist or cannot be opened: {requested}") from exc
+    if not current.is_dir():
+        raise ServiceError(f"Path is not a folder: {current}")
+    if not os.access(current, os.R_OK | os.X_OK):
+        raise ServiceError(f"Folder is not readable: {current}")
+
+    directories: List[Dict[str, Any]] = []
+    try:
+        with os.scandir(current) as entries:
+            for entry in entries:
+                if not show_hidden and entry.name.startswith("."):
+                    continue
+                try:
+                    if not entry.is_dir(follow_symlinks=True):
+                        continue
+                    readable = os.access(entry.path, os.R_OK | os.X_OK)
+                    directories.append(
+                        {
+                            "name": entry.name,
+                            "path": str(Path(entry.path)),
+                            "kind": "folder",
+                            "readable": readable,
+                            "symlink": entry.is_symlink(),
+                        }
+                    )
+                except OSError:
+                    continue
+    except (OSError, PermissionError) as exc:
+        raise ServiceError(f"Folder cannot be listed: {current}") from exc
+    directories.sort(key=lambda item: (not item["readable"], item["name"].casefold()))
+
+    roots: List[Dict[str, Any]] = [
+        {
+            "name": "Home",
+            "path": str(Path.home()),
+            "kind": "home",
+            "readable": True,
+            "symlink": False,
+        },
+        {
+            "name": "Computer",
+            "path": str(Path("/")),
+            "kind": "root",
+            "readable": os.access("/", os.R_OK | os.X_OK),
+            "symlink": False,
+        },
+    ]
+    for drive in _detected_archive_drives():
+        roots.append(
+            {
+                "name": str(drive.get("name") or Path(str(drive["path"])).name),
+                "path": str(drive["path"]),
+                "kind": "drive",
+                "readable": os.access(str(drive["path"]), os.R_OK | os.X_OK),
+                "symlink": False,
+            }
+        )
+    deduplicated_roots = list({item["path"]: item for item in roots}.values())
+    parent = current.parent if current.parent != current else None
+    return {
+        "current_path": str(current),
+        "parent_path": str(parent) if parent else None,
+        "roots": deduplicated_roots,
+        "directories": directories,
+    }
+
+
+def available_archive_targets() -> Dict[str, Any]:
+    """Return safe display metadata for writable external archive targets."""
+    drives = [
+        {
+            "name": str(item.get("name") or Path(str(item["path"])).name),
+            "path": str(item["path"]),
+            "available_space": int(item.get("available_space") or 0),
+            "device": str(item.get("device") or ""),
+            "filesystem": str(item.get("fs_type") or item.get("filesystem") or ""),
+        }
+        for item in _detected_archive_drives()
+    ]
+    return {
+        "drives": drives,
+        "recommended_path": drives[0]["path"] if drives else None,
+    }
+
+
+def _detected_archive_drives() -> List[Dict[str, Any]]:
+    try:
+        return list(detect_external_drives())
+    except Exception:
+        # Drive discovery is advisory in the dashboard. A platform-tool or
+        # permission failure must not prevent users from choosing a local path.
+        return []
 
 
 class ReportService:

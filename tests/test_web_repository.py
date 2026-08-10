@@ -52,3 +52,5 @@ def test_repository_persists_jobs_reports_candidates_and_actions(tmp_path):
     )
     assert action["dry_run"] is True
     assert action["result"]["deleted"] == 1
+    assert action["target_path"] is None
+    assert repo.list_actions("job-1") == [action]

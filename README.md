@@ -24,8 +24,9 @@ CLI.
   parallel scanning, and optimized analysis.
 - **Safety First**: Requires explicit confirmation before destructive actions.
 - **Rich CLI**: Terminal UI with progress bars, tables, and color-coded output.
-- **Web Dashboard**: Optional FastAPI and React interface for visual reports,
-  live progress, candidate selection, and confirmed clean/archive actions.
+- **Guided Web Dashboard**: Task-based Home, Reports, Protected folders, and
+  searchable Help views for the complete local workflow, including folder
+  browsing, live progress, persisted history, and guarded actions.
 - **Protected Folders**: macOS-first, encrypted Restic archives replicated to
   independently usable disks, with an offline file catalog and guarded local
   eviction only after the configured copy count is verified.
@@ -75,8 +76,11 @@ Start the packaged FastAPI and React application with one command:
 uv run disk-space-manager-web
 ```
 
-The server binds to `127.0.0.1` by default, prints a tokenized URL, stores job
-history in `~/.disk-space-manager-web.sqlite3`, and serves the built React
+The server binds to `127.0.0.1` by default, prints its authenticated URL, waits
+for Uvicorn to be ready, and opens the dashboard in the default browser. The
+frontend immediately removes the token from the visible URL and keeps it in
+local browser storage until **Disconnect** is selected. The server stores job
+history in `~/.disk-space-manager-web.sqlite3` and serves the built React
 frontend from the Python package.
 
 Useful web server options:
@@ -85,6 +89,7 @@ Useful web server options:
 uv run disk-space-manager-web --host 127.0.0.1 --port 8765
 uv run disk-space-manager-web --db-path ~/.disk-space-manager-web.sqlite3
 uv run disk-space-manager-web --token <token>
+uv run disk-space-manager-web --no-open
 ```
 
 If no token is provided, the server reads `DISK_SPACE_MANAGER_WEB_TOKEN`, then
@@ -103,22 +108,45 @@ Development mode starts FastAPI and the Vite frontend together, using
 `--frontend-port 5173` by default. Use `--host 0.0.0.0` only when you
 intentionally want network access, and keep the token private.
 
-The web workflow is:
+The dashboard opens on **Home**, where task cards lead to Analyze storage,
+Clean caches, Archive old files, Review duplicates, Protect folders, Restore
+files, and Recover a catalog. The searchable **Help** section documents each
+operation, dry runs, exact confirmation phrases, archive symlinks, protected
+folder prerequisites, recovery, terminology, and troubleshooting.
 
-1. Create a report job with a scan path, age threshold, and duplicate options.
+The report workflow is:
+
+1. Choose a scan folder with the in-app browser or path field, then review the
+   age and duplicate options.
 2. Watch live progress while the backend scans and analyzes in a background
    worker.
-3. Review visual summaries, largest files/directories, duplicate groups, cache
-   candidates, and old-file candidates.
-4. Select stored candidate IDs from the completed report.
-5. Run clean/archive in dry-run mode, or provide the displayed confirmation
-   phrase to execute the real action.
+3. Use the Overview, Large items, Duplicates, Clean, Archive, and Activity tabs.
+   Charts include legends and text values, and scan errors are listed by path.
+4. Search and page candidate tables, then select a page or all matching rows.
+5. Run a dry-run for the exact clean/archive selection and destination. A
+   changed selection or destination invalidates that preview.
+6. Type the displayed confirmation phrase exactly to enable the real action.
+   The completion summary is persisted, and the dashboard prompts for a rescan
+   because the prior report is stale.
 
-The **Protected folders** dashboard is separate from report jobs. It shows
-local/pending/partial/protected/evicted/at-risk totals, one health card per
-enrolled drive, per-file replica receipts, queued progress, cancellation, and
-fresh-Mac recovery import. Mounted disks are polled every five seconds only
-while that dashboard section is open; there is no background agent.
+Duplicate results remain advisory: the dashboard does not expose automatic
+duplicate deletion. Archive destinations can be a detected writable external
+drive (with free-space information) or a local path. Successful archive
+actions preserve the scanned directory structure below `archived_files` and
+leave symlinks at the original paths.
+
+The **Protected folders** dashboard is separate from report jobs. Its readiness
+panel reports macOS/Restic prerequisites and mounted disks, while a lifecycle
+checklist guides recovery-key confirmation, enrollment, indexing, backup,
+verification, replica coverage, optional eviction, and restore. The web UI can
+rename a protected folder, change its required-copy policy with the existing
+lowering guard, delete only the local catalog with the guarded phrase, run
+selected full verification, restore from an automatic or chosen replica to the
+original or another destination, and choose required copies during recovery
+import. Catalog rows are searchable and paginated. Queued/running operations
+reconnect after reload and can be cancelled safely. Mounted disks are polled
+every five seconds only while that section is open; there is no background
+agent.
 
 During a protected-folder backup, the dashboard shows Restic's file-transfer
 time estimate when one is available, then switches to an explicit structural

@@ -1000,6 +1000,12 @@ class ProtectionService:
             "files": self.repository.list_files(
                 folder["id"], query=query, limit=limit, offset=offset
             ),
+            "catalog": {
+                "query": query,
+                "limit": max(1, min(limit, 2000)),
+                "offset": max(0, offset),
+                "total": self.repository.count_files(folder["id"], query=query),
+            },
             "operations": self.repository.list_operations(folder["id"], limit=20),
         }
 

@@ -8,6 +8,12 @@ vi.mock("./api", async () => {
     ...actual,
     initialToken: () => "secret",
     saveToken: vi.fn(),
+    getConfig: vi.fn().mockResolvedValue({
+      default_scan_path: "/tmp",
+      default_age_months: 6,
+      max_candidate_rows: 5000,
+      platform: "Darwin"
+    }),
     listJobs: vi.fn().mockResolvedValue({ jobs: [] }),
     createJob: vi.fn().mockResolvedValue({
       id: "job-1",
@@ -28,7 +34,10 @@ vi.mock("./api", async () => {
 
 test("starts a scan job from the dashboard", async () => {
   render(<App />);
-  await userEvent.type(screen.getByLabelText(/Path/i), "/tmp/demo");
-  await userEvent.click(screen.getByRole("button", { name: /Scan/i }));
+  await userEvent.click(await screen.findByRole("button", { name: /Analyze storage/ }));
+  const path = await screen.findByLabelText("Folder to scan");
+  await userEvent.clear(path);
+  await userEvent.type(path, "/tmp/demo");
+  await userEvent.click(screen.getByRole("button", { name: "Start scan" }));
   expect(await screen.findByText("/tmp/demo")).toBeInTheDocument();
 });

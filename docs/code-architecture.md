@@ -212,13 +212,15 @@ helpers, and archive target path construction.
 
 Contains the optional FastAPI application and built React assets.
 
-- `server.py` exposes `disk-space-manager-web`, prints the tokenized URL, and
-  can start Vite in `--dev` mode. It owns web command options for host, port,
-  frontend port, SQLite path, and token override.
+- `server.py` exposes `disk-space-manager-web`, prints the tokenized URL, opens
+  it after Uvicorn is ready by default, and can start Vite in `--dev` mode. It
+  owns web command options for host, port, frontend port, SQLite path, token
+  override, and `--open/--no-open`.
 - `app.py` owns FastAPI route declarations, token-protected API dependencies,
   Server-Sent Events, and static frontend serving.
-- `services.py` converts core scan/analyze results into persisted web reports
-  and runs clean/archive actions only against stored candidate IDs.
+- `services.py` converts core scan/analyze results into persisted web reports,
+  exposes authenticated directory/archive-target discovery, and runs
+  clean/archive actions only against stored candidate IDs.
 - `jobs.py` queues long-running report jobs on a single background worker.
 - `repository.py` persists job history, report summaries, candidates, and
   action results in SQLite.
@@ -234,8 +236,16 @@ reimplement filesystem traversal or mutation behavior.
 
 Contains the React/Vite dashboard source.
 
-- `src/App.tsx` owns the dashboard shell, scan form, job history, progress
-  display, charts, duplicate review, candidate tables, and action panels.
+- `src/App.tsx` owns authentication, token disconnect, task navigation, and the
+  Home shell.
+- `src/ReportsDashboard.tsx` owns guided scans, report tabs, charts, candidate
+  paging/selection, preview invalidation, exact confirmation, destinations,
+  results, and action history.
+- `src/ProtectedFolders.tsx` owns readiness, lifecycle, settings, drives,
+  catalog paging, operation reconnection/cancellation, eviction, restore, and
+  recovery import.
+- `src/FolderBrowser.tsx` is the authenticated directory-only picker.
+- `src/HelpCenter.tsx` contains searchable operation and troubleshooting help.
 - `src/api.ts` centralizes token-aware API calls and SSE subscription setup.
 - `src/types.ts` mirrors the JSON structures returned by the FastAPI API.
 - `vite.config.ts` builds production assets into
@@ -251,6 +261,9 @@ The web API is token-protected except for `/health`.
 
 - `GET /health`: unauthenticated liveness check.
 - `GET /api/config`: default age threshold and feature availability.
+- `GET /api/filesystem/directories`: list readable child directories and
+  home/root/drive shortcuts for the folder picker.
+- `GET /api/archive-targets`: list writable detected drives and free space.
 - `POST /api/jobs`: create a queued report job.
 - `GET /api/jobs`: list recent persisted jobs.
 - `GET /api/jobs/{job_id}`: read job status, progress, and confirmation
@@ -258,10 +271,16 @@ The web API is token-protected except for `/health`.
 - `GET /api/jobs/{job_id}/events`: Server-Sent Events stream of job snapshots.
 - `GET /api/jobs/{job_id}/report`: completed report plus stored cache and old
   file candidates.
+- `GET /api/jobs/{job_id}/actions`: persisted previews and executions.
 - `POST /api/jobs/{job_id}/actions/clean`: dry-run or confirmed delete action
   for selected cache candidate IDs.
 - `POST /api/jobs/{job_id}/actions/archive`: dry-run or confirmed archive
   action for selected old-file candidate IDs.
+- `GET /api/protection/preflight`: macOS and Restic readiness.
+- `/api/protection/folders`, folder detail/settings/deletion, drive enrollment,
+  operation creation/events/cancellation, and recovery import expose the same
+  protected-folder safety model as the CLI. Folder detail accepts `query`,
+  `limit`, and `offset` and returns additive catalog pagination metadata.
 
 Report jobs are queued through a `ThreadPoolExecutor` with one worker. Job
 state is persisted in SQLite so prior job summaries remain visible after a
@@ -326,6 +345,9 @@ This command is read-only.
 4. In `--dev` mode, start Vite with backend URL and token environment values,
    enable CORS for the Vite origin, and run FastAPI.
 5. Bind to `--host` and `--port`, defaulting to `127.0.0.1:8765`.
+6. Print the correct production or Vite URL and, unless `--no-open` is used,
+   open it after Uvicorn reports readiness. Wildcard bind hosts use
+   `127.0.0.1` in the browser URL.
 
 The web command does not run a scan by itself. Scans start when the frontend or
 another token-authenticated client posts to `/api/jobs`.
@@ -360,9 +382,12 @@ duplicate detection, `full-report` smoke coverage, web token/auth behavior,
 web report jobs, web dry-run actions, SQLite repository persistence, and
 profiling helper safety.
 
-The frontend test suite uses Vitest and React Testing Library for dashboard
-smoke coverage. TypeScript checks and the production Vite build verify the
-frontend source and generated static assets.
+The frontend test suite uses Vitest and React Testing Library for task
+navigation, help search, folder selection, report tabs/candidate controls,
+preview invalidation, confirmation matching, archive destinations, protected
+settings, targeted verification, restore/recovery choices, catalog paging, and
+operation reconnection. TypeScript checks and the production Vite build verify
+the frontend source and generated static assets.
 
 `scripts/profile_report_generation.py` is the performance harness. It owns and
 recreates `downloads/benchmark`, generates deterministic sparse-file datasets,

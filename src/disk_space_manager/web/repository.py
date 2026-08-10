@@ -304,6 +304,20 @@ class WebRepository:
             "created_at": created_at,
         }
 
+    def list_actions(self, job_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Return persisted previews and executions for one report job."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM actions
+                WHERE job_id = ?
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?
+                """,
+                (job_id, limit),
+            ).fetchall()
+        return [_row_to_action(row) for row in rows]
+
     def _connect(self):
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
@@ -364,6 +378,20 @@ def _row_to_candidate(row: sqlite3.Row) -> Dict[str, Any]:
     candidate = dict(row)
     candidate["metadata"] = json.loads(candidate.pop("metadata_json"))
     return candidate
+
+
+def _row_to_action(row: sqlite3.Row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "job_id": row["job_id"],
+        "action_type": row["action_type"],
+        "dry_run": bool(row["dry_run"]),
+        "target_path": row["target_path"],
+        "selected_count": int(row["selected_count"]),
+        "skipped_count": int(row["skipped_count"]),
+        "result": json.loads(row["result_json"]),
+        "created_at": row["created_at"],
+    }
 
 
 def _json_dumps(value: Any) -> str:

@@ -138,6 +138,8 @@ Options:
 - `--db-path PATH`: SQLite database path; defaults to
   `~/.disk-space-manager-web.sqlite3`.
 - `--token TEXT`: API token override.
+- `--open/--no-open`: open the authenticated dashboard after Uvicorn is ready;
+  defaults to `--open`.
 
 Token behavior:
 
@@ -145,7 +147,10 @@ Token behavior:
 - If omitted, `DISK_SPACE_MANAGER_WEB_TOKEN` is used when present.
 - If no environment token exists, `~/.disk-space-manager-web-token` is read or
   created with mode `0600` when possible.
-- The server prints a tokenized URL at startup.
+- The server always prints a tokenized URL at startup. Wildcard bind hosts use
+  `127.0.0.1` in that usable browser URL.
+- The frontend removes the token query parameter from the address bar after
+  capture and offers explicit reconnect/disconnect controls.
 - API routes require a valid token except for `/health`.
 
 Runtime behavior:
@@ -157,6 +162,8 @@ Runtime behavior:
 - Binding to a non-localhost host is explicit and should be treated as network
   mode.
 - The backend uses a single background worker for heavy report jobs.
+- Failure to open the operating-system browser is non-fatal; the printed URL
+  remains available.
 
 ## Web API Specification
 
@@ -171,6 +178,10 @@ Routes:
 
 - `GET /health`: unauthenticated health check returning `{"status": "ok"}`.
 - `GET /api/config`: default age threshold and duplicate feature flags.
+- `GET /api/filesystem/directories?path=&show_hidden=`: current and parent
+  paths, home/root/detected-drive shortcuts, and readable child directories.
+- `GET /api/archive-targets`: writable detected drives with path, filesystem,
+  device, free space, and the recommended path.
 - `POST /api/jobs`: create a queued report job.
 - `GET /api/jobs`: list recent persisted jobs.
 - `GET /api/jobs/{job_id}`: fetch job status, progress, and confirmation
@@ -178,10 +189,27 @@ Routes:
 - `GET /api/jobs/{job_id}/events`: stream job snapshots as Server-Sent Events.
 - `GET /api/jobs/{job_id}/report`: fetch completed report summary, job object,
   cache candidates, and old-file candidates.
+- `GET /api/jobs/{job_id}/actions`: fetch persisted dry-run and real action
+  results in reverse chronological order.
 - `POST /api/jobs/{job_id}/actions/clean`: dry-run or confirmed clean action
   against cache candidate IDs.
 - `POST /api/jobs/{job_id}/actions/archive`: dry-run or confirmed archive
   action against old-file candidate IDs.
+- `GET /api/protection/preflight`: platform support, required/current Restic
+  version, readiness, and an actionable setup message.
+- `GET/POST /api/protection/folders`: list or create protected folders.
+- `GET/PATCH/DELETE /api/protection/folders/{folder_id}`: paginated detail,
+  guarded settings update, or guarded local-catalog deletion.
+- `POST /api/protection/folders/{folder_id}/confirm-recovery`: confirm the
+  saved recovery key.
+- `POST /api/protection/folders/{folder_id}/drives`: enroll a mounted disk.
+- `POST /api/protection/folders/{folder_id}/operations`: index, back up,
+  verify (including selected full verification), preview/confirm eviction, or
+  restore from automatic/selected replicas to original/selected destinations.
+- `GET /api/protection/operations/{operation_id}` and its `/events` and
+  `/cancel` routes: reconnect to, stream, or safely cancel operations.
+- `POST /api/protection/import`: recover a catalog with a chosen required-copy
+  policy.
 
 Job creation request:
 
@@ -227,6 +255,19 @@ Action behavior:
   resolved target root.
 - Web dry-run archive with a local `target_path` does not create that target
   directory.
+- Action responses include the resolved `target_path`, structured executor
+  counts, selected/skipped counts, dry-run state, and timestamp.
+- The dashboard exposes real-action confirmation only while its current
+  selection and archive destination match the completed dry-run preview.
+
+Folder browser behavior:
+
+- The authenticated server process lists directory names and metadata only.
+- Hidden child directories are omitted unless `show_hidden=true`.
+- Missing, non-directory, unreadable, and unlistable paths return an actionable
+  `400` response.
+- The API does not read file contents, upload files, create directories, or
+  broaden the server process's filesystem permissions.
 
 ## Web Persistence Specification
 
@@ -438,10 +479,18 @@ The current test suite covers these behavioral invariants:
 - Web dry-run clean leaves files in place.
 - Web dry-run archive uses stored old-file candidate IDs and does not create
   the local target directory.
+- Directory browsing covers hidden entries, missing/unreadable paths, and
+  archive-drive shortcuts; archive-target discovery covers free-space fields.
+- Action-history responses preserve archive target paths.
+- Protected preflight and catalog query/limit/offset metadata are covered.
+- Server startup covers default opening, `--no-open`, wildcard/IPv6 URLs,
+  development URLs, token encoding, and opener failure fallback.
 - SQLite repository persistence covers jobs, reports, candidates, and action
   results.
-- Frontend smoke coverage verifies dashboard job creation behavior with mocked
-  API calls.
+- Frontend coverage verifies task navigation, help search, directory selection,
+  report tabs/filtering/selection, preview invalidation, exact confirmations,
+  archive payloads, protected settings/deletion guards, selected full verify,
+  restore/import options, pagination, operation recovery, and cancellation.
 - Profiling helper cleanup is safe and rejects unsafe benchmark paths.
 
 ## Verification

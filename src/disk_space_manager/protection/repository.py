@@ -709,6 +709,21 @@ class ProtectionRepository:
                 result.append(item)
         return result
 
+    def count_files(self, folder_id: str, *, query: str = "") -> int:
+        """Count current catalog entries, optionally matching a path search."""
+        sql = """
+            SELECT COUNT(*) AS count FROM file_versions
+            WHERE protected_folder_id = ? AND is_current = 1
+        """
+        params: List[Any] = [folder_id]
+        if query:
+            sql += " AND relative_path LIKE ? ESCAPE '\\'"
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            params.append(f"%{escaped}%")
+        with self._read() as conn:
+            row = conn.execute(sql, params).fetchone()
+        return int(row["count"] if row else 0)
+
     def get_file_versions(
         self, folder_id: str, file_ids: Sequence[str]
     ) -> List[Dict[str, Any]]:

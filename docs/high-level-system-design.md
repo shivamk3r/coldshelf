@@ -19,8 +19,9 @@ The primary user is a macOS or Linux user who wants local visibility into disk
 usage and safe cleanup decisions. They may use:
 
 - The CLI for direct terminal workflows and scriptable checks.
-- The web dashboard for visual summaries, job history, live progress, and
-  interactive candidate review.
+- The web dashboard for task-based guidance, visual summaries, job/action
+  history, live progress, interactive candidate review, protected-folder
+  lifecycle management, and searchable local documentation.
 
 The main workflows are:
 
@@ -35,7 +36,9 @@ The main workflows are:
   potential savings.
 - Start `disk-space-manager-web` to create report jobs, watch live progress,
   review charts/tables, select persisted candidates, and run dry-run or
-  confirmed clean/archive actions.
+  confirmed clean/archive actions without returning to the CLI.
+- Manage protected-folder settings, drives, catalog pages, verification,
+  eviction, restore, and fresh-Mac recovery from the same authenticated UI.
 
 ## System Context
 
@@ -57,9 +60,11 @@ server that has access to the filesystem being managed. It interacts with:
   are used for file analysis.
 - A local action log at `~/.disk-space-manager-actions.log`.
 
-The web server binds to `127.0.0.1` by default and requires a token for API
-routes. It can be bound to another host explicitly, but the token must be kept
-private.
+The web server binds to `127.0.0.1` by default, requires a token for API routes,
+prints the usable authenticated URL, and opens it after Uvicorn is ready unless
+`--no-open` is supplied. The React client removes the startup token from the
+address bar after capture. The server can be bound to another host explicitly,
+but the token must be kept private.
 
 ## Major Subsystems
 
@@ -75,7 +80,7 @@ prompts. The root `main.py` is only a checkout compatibility shim.
 `src/disk_space_manager/web/` owns the optional FastAPI app:
 
 - `server.py` exposes the `disk-space-manager-web` command, token setup,
-  default host/port, database path, and Vite dev mode.
+  default host/port, database path, browser opening, and Vite dev mode.
 - `app.py` declares the HTTP API, token dependencies, SSE progress endpoint,
   and static frontend serving.
 - `jobs.py` queues long-running report jobs on a single background worker.
@@ -88,6 +93,14 @@ prompts. The root `main.py` is only a checkout compatibility shim.
 build is checked into `src/disk_space_manager/web/static/` so the packaged
 Python web command can serve the UI without starting Vite.
 
+The frontend uses four top-level tasks: Home, Reports, Protected folders, and
+Help. Reports divide completed results into Overview, Large items, Duplicates,
+Clean, Archive, and Activity tabs. Server-side folder browsing reveals only
+directory metadata to the authenticated process; it does not upload or read
+file contents. Protected-folder catalog paging remains server-side while
+report candidate filtering and paging are client-side over bounded persisted
+candidate lists.
+
 ### Workflow Orchestration
 
 `workflows.py` creates scanner, analyzer, duplicate detector, and executor
@@ -97,9 +110,10 @@ resolves archive destinations using the precedence `--target-path`, then
 `--external-path`, then auto-detected external drive.
 
 The web service layer performs equivalent orchestration for report jobs and
-candidate-based actions. It stores report summaries and actionable candidates,
-then only allows clean/archive actions against candidate IDs produced by a
-completed job.
+candidate-based actions. It stores report summaries, actionable candidates,
+and every clean/archive preview or execution, then only allows actions against
+candidate IDs produced by a completed job. The frontend requires a matching
+dry-run before it exposes the exact-phrase confirmation step.
 
 ### Filesystem Scanner
 

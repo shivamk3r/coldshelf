@@ -116,10 +116,49 @@ export interface ActionResult {
   job_id: string;
   action_type: string;
   dry_run: boolean;
+  target_path?: string | null;
   selected_count: number;
   skipped_count: number;
   result: Record<string, unknown>;
   created_at: string;
+}
+
+export interface AppConfig {
+  default_age_months: number;
+  duplicate_detection: boolean;
+  near_duplicate_detection: boolean;
+}
+
+export interface DirectoryLocation {
+  name: string;
+  path: string;
+  kind: "home" | "root" | "drive" | "folder" | string;
+  readable: boolean;
+  symlink: boolean;
+}
+
+export interface DirectoryListing {
+  current_path: string;
+  parent_path?: string | null;
+  roots: DirectoryLocation[];
+  directories: DirectoryLocation[];
+}
+
+export interface ArchiveTarget {
+  name: string;
+  path: string;
+  available_space: number;
+  device: string;
+  filesystem: string;
+}
+
+export interface ProtectionPreflight {
+  platform: string;
+  supported: boolean;
+  ready: boolean;
+  minimum_restic_version: string;
+  restic_version?: string | null;
+  message: string;
 }
 
 export interface ProtectedFolder {
@@ -249,4 +288,10 @@ export interface ProtectedFolderDetail {
   drives: DriveTarget[];
   files: FileVersion[];
   operations: ProtectionOperation[];
+  catalog?: {
+    query: string;
+    limit: number;
+    offset: number;
+    total: number;
+  };
 }

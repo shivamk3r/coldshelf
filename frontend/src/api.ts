@@ -1,11 +1,15 @@
 import type {
   ActionResult,
+  AppConfig,
+  ArchiveTarget,
+  DirectoryListing,
   DriveTarget,
   Job,
   MountedVolume,
   ProtectedFolder,
   ProtectedFolderCreated,
   ProtectedFolderDetail,
+  ProtectionPreflight,
   ProtectionOperation,
   Report
 } from "./types";
@@ -15,11 +19,35 @@ const ENV_TOKEN = import.meta.env.VITE_DSM_TOKEN || "";
 
 export function initialToken(): string {
   const params = new URLSearchParams(window.location.search);
-  return params.get("token") || ENV_TOKEN || localStorage.getItem("dsm-token") || "";
+  const queryToken = params.get("token") || "";
+  if (queryToken) {
+    params.delete("token");
+    const query = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`
+    );
+  }
+  return queryToken || ENV_TOKEN || localStorage.getItem("dsm-token") || "";
 }
 
 export function saveToken(token: string): void {
   localStorage.setItem("dsm-token", token);
+}
+
+export function clearToken(): void {
+  localStorage.removeItem("dsm-token");
+}
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
 }
 
 export async function apiRequest<T>(
@@ -43,9 +71,37 @@ export async function apiRequest<T>(
     } catch {
       // Keep HTTP status text when the body is not JSON.
     }
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
   return response.json() as Promise<T>;
+}
+
+export function getConfig(token: string): Promise<AppConfig> {
+  return apiRequest<AppConfig>("/api/config", token);
+}
+
+export function browseDirectories(
+  token: string,
+  path?: string,
+  showHidden = false
+): Promise<DirectoryListing> {
+  const params = new URLSearchParams();
+  if (path) params.set("path", path);
+  if (showHidden) params.set("show_hidden", "true");
+  const suffix = params.toString();
+  return apiRequest<DirectoryListing>(
+    `/api/filesystem/directories${suffix ? `?${suffix}` : ""}`,
+    token
+  );
+}
+
+export function listArchiveTargets(
+  token: string
+): Promise<{ drives: ArchiveTarget[]; recommended_path?: string | null }> {
+  return apiRequest<{ drives: ArchiveTarget[]; recommended_path?: string | null }>(
+    "/api/archive-targets",
+    token
+  );
 }
 
 export function createJob(
@@ -69,6 +125,16 @@ export function listJobs(token: string): Promise<{ jobs: Job[] }> {
 
 export function getReport(token: string, jobId: string): Promise<Report> {
   return apiRequest<Report>(`/api/jobs/${jobId}/report`, token);
+}
+
+export function listJobActions(
+  token: string,
+  jobId: string
+): Promise<{ actions: ActionResult[] }> {
+  return apiRequest<{ actions: ActionResult[] }>(
+    `/api/jobs/${jobId}/actions`,
+    token
+  );
 }
 
 export function runClean(
@@ -112,7 +178,9 @@ export function openJobEvents(
     `${API_BASE}/api/jobs/${jobId}/events?token=${encodeURIComponent(token)}`
   );
   source.addEventListener("progress", (event) => {
-    onJob(JSON.parse((event as MessageEvent).data) as Job);
+    const job = JSON.parse((event as MessageEvent).data) as Job;
+    onJob(job);
+    if (job.status === "completed" || job.status === "failed") source.close();
   });
   return source;
 }
@@ -124,13 +192,20 @@ export function listProtectedFolders(token: string): Promise<ProtectedFolder[]> 
 export function getProtectedFolder(
   token: string,
   folderId: string,
-  query = ""
+  query = "",
+  limit = 100,
+  offset = 0
 ): Promise<ProtectedFolderDetail> {
-  const suffix = query ? `?query=${encodeURIComponent(query)}` : "";
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (query) params.set("query", query);
   return apiRequest<ProtectedFolderDetail>(
-    `/api/protection/folders/${folderId}${suffix}`,
+    `/api/protection/folders/${folderId}?${params}`,
     token
   );
+}
+
+export function protectionPreflight(token: string): Promise<ProtectionPreflight> {
+  return apiRequest<ProtectionPreflight>("/api/protection/preflight", token);
 }
 
 export function createProtectedFolder(
@@ -140,6 +215,32 @@ export function createProtectedFolder(
   return apiRequest<ProtectedFolderCreated>("/api/protection/folders", token, {
     method: "POST",
     body: JSON.stringify(payload)
+  });
+}
+
+export function updateProtectedFolder(
+  token: string,
+  folderId: string,
+  payload: {
+    name: string;
+    required_copies: number;
+    confirmation_phrase?: string;
+  }
+): Promise<ProtectedFolder> {
+  return apiRequest<ProtectedFolder>(`/api/protection/folders/${folderId}`, token, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteProtectedFolder(
+  token: string,
+  folderId: string,
+  confirmationPhrase: string
+): Promise<{ deleted: string; repositories_left_intact: number; keychain_warning?: string }> {
+  return apiRequest(`/api/protection/folders/${folderId}`, token, {
+    method: "DELETE",
+    body: JSON.stringify({ confirmation_phrase: confirmationPhrase })
   });
 }
 
@@ -220,7 +321,9 @@ export function openProtectionEvents(
     `${API_BASE}/api/protection/operations/${operationId}/events?token=${encodeURIComponent(token)}`
   );
   source.addEventListener("progress", (event) => {
-    onOperation(JSON.parse((event as MessageEvent).data) as ProtectionOperation);
+    const operation = JSON.parse((event as MessageEvent).data) as ProtectionOperation;
+    onOperation(operation);
+    if (["completed", "failed", "cancelled"].includes(operation.status)) source.close();
   });
   return source;
 }

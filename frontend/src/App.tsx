@@ -1,683 +1,258 @@
 import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
 import {
   Archive,
-  CheckCircle2,
+  BarChart3,
+  BookOpen,
+  CircleHelp,
+  CopyCheck,
   Database,
-  FolderSearch,
+  FileSearch,
   HardDrive,
+  Home,
+  KeyRound,
   Loader2,
+  LogOut,
+  RotateCcw,
   ShieldCheck,
   Trash2
 } from "lucide-react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis
-} from "recharts";
-import {
-  createJob,
-  getReport,
-  initialToken,
-  listJobs,
-  openJobEvents,
-  runArchive,
-  runClean,
-  saveToken
-} from "./api";
-import type { ActionResult, Candidate, DuplicateGroup, Job, Report } from "./types";
-import { ProtectedFolders } from "./ProtectedFolders";
 
-const CHART_COLORS = ["#047857", "#2563eb", "#d97706", "#be123c", "#6d28d9", "#0f766e"];
+import { ApiError, clearToken, getConfig, initialToken, saveToken } from "./api";
+import { HelpCenter } from "./HelpCenter";
+import { ProtectedFolders } from "./ProtectedFolders";
+import { ReportsDashboard } from "./ReportsDashboard";
+import type { ReportIntent } from "./ReportsDashboard";
+
+type View = "home" | "reports" | "protection" | "help";
+export type ProtectionIntent = "manage" | "create" | "restore" | "recover";
 
 export function App() {
   const [token, setToken] = useState(initialToken());
-  const [tokenInput, setTokenInput] = useState(token);
-  const [scanPath, setScanPath] = useState("");
-  const [ageMonths, setAgeMonths] = useState(6);
-  const [includeDuplicates, setIncludeDuplicates] = useState(true);
-  const [includeNearDuplicates, setIncludeNearDuplicates] = useState(true);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [activeJob, setActiveJob] = useState<Job | null>(null);
-  const [report, setReport] = useState<Report | null>(null);
-  const [selectedCache, setSelectedCache] = useState<Set<string>>(new Set());
-  const [selectedOld, setSelectedOld] = useState<Set<string>>(new Set());
-  const [archiveTarget, setArchiveTarget] = useState("");
-  const [dryRunClean, setDryRunClean] = useState(true);
-  const [dryRunArchive, setDryRunArchive] = useState(true);
-  const [cleanPhrase, setCleanPhrase] = useState("");
-  const [archivePhrase, setArchivePhrase] = useState("");
-  const [actionResult, setActionResult] = useState<ActionResult | null>(null);
-  const [error, setError] = useState("");
-  const [view, setView] = useState<"reports" | "protection">("reports");
+  const [tokenInput, setTokenInput] = useState("");
+  const [view, setView] = useState<View>(initialView());
+  const [reportIntent, setReportIntent] = useState<ReportIntent>("analyze");
+  const [protectionIntent, setProtectionIntent] = useState<ProtectionIntent>("manage");
+  const [helpArticle, setHelpArticle] = useState("start");
+  const [jobsCount, setJobsCount] = useState(0);
+  const [checkingToken, setCheckingToken] = useState(Boolean(token));
+  const [authError, setAuthError] = useState("");
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      setCheckingToken(false);
+      return;
+    }
     saveToken(token);
-    refreshJobs(token).catch((err) => setError(err.message));
+    setCheckingToken(true);
+    getConfig(token)
+      .then(() => setAuthError(""))
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 401) {
+          clearToken();
+          setToken("");
+          setAuthError("That token was not accepted. Reopen the URL printed by the server or enter its token below.");
+        } else {
+          setAuthError(err instanceof Error ? err.message : "The dashboard could not connect to the server.");
+        }
+      })
+      .finally(() => setCheckingToken(false));
   }, [token]);
 
   useEffect(() => {
-    if (!token || !activeJob) return;
-    if (activeJob.status === "completed") {
-      loadReport(token, activeJob.id).catch((err) => setError(err.message));
-      return;
-    }
-    if (activeJob.status === "failed") return;
+    const hash = view === "home" ? "" : `#/${view}`;
+    window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}${hash}`);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [view]);
 
-    const events = openJobEvents(token, activeJob.id, (job) => {
-      setActiveJob(job);
-      setJobs((current) => mergeJob(current, job));
-      if (job.status === "completed") {
-        loadReport(token, job.id).catch((err) => setError(err.message));
-      }
-    });
-    events.onerror = () => events.close();
-    return () => events.close();
-  }, [token, activeJob?.id, activeJob?.status]);
-
-  async function refreshJobs(apiToken = token) {
-    const response = await listJobs(apiToken);
-    setJobs(response.jobs);
-    if (!activeJob && response.jobs.length > 0) {
-      setActiveJob(response.jobs[0]);
-      if (response.jobs[0].status === "completed") {
-        await loadReport(apiToken, response.jobs[0].id);
-      }
-    }
+  function openReports(intent: ReportIntent) {
+    setReportIntent(intent);
+    setView("reports");
   }
 
-  async function loadReport(apiToken: string, jobId: string) {
-    const nextReport = await getReport(apiToken, jobId);
-    setReport(nextReport);
-    setSelectedCache(new Set());
-    setSelectedOld(new Set());
+  function openProtection(intent: ProtectionIntent) {
+    setProtectionIntent(intent);
+    setView("protection");
   }
 
-  async function submitJob(event: React.FormEvent) {
-    event.preventDefault();
-    setError("");
-    setActionResult(null);
-    const job = await createJob(token, {
-      path: scanPath.trim() || undefined,
-      age_months: ageMonths,
-      include_duplicates: includeDuplicates,
-      include_near_duplicates: includeDuplicates && includeNearDuplicates
-    });
-    setActiveJob(job);
-    setReport(null);
-    setJobs((current) => mergeJob(current, job));
+  function openHelp(article = "start") {
+    setHelpArticle(article);
+    setView("help");
   }
 
-  async function selectJob(job: Job) {
-    setActiveJob(job);
-    setActionResult(null);
-    setError("");
-    if (job.status === "completed") {
-      await loadReport(token, job.id);
-    } else {
-      setReport(null);
-    }
+  function disconnect() {
+    clearToken();
+    setToken("");
+    setTokenInput("");
+    setAuthError("");
   }
 
-  async function submitClean() {
-    if (!activeJob) return;
-    setError("");
-    setActionResult(null);
-    const result = await runClean(token, activeJob.id, {
-      candidate_ids: [...selectedCache],
-      dry_run: dryRunClean,
-      confirmation_phrase: dryRunClean ? undefined : cleanPhrase
-    });
-    setActionResult(result);
-  }
-
-  async function submitArchive() {
-    if (!activeJob) return;
-    setError("");
-    setActionResult(null);
-    const result = await runArchive(token, activeJob.id, {
-      candidate_ids: [...selectedOld],
-      dry_run: dryRunArchive,
-      confirmation_phrase: dryRunArchive ? undefined : archivePhrase,
-      target_path: archiveTarget.trim() || undefined
-    });
-    setActionResult(result);
-  }
-
-  if (!token) {
+  if (!token || checkingToken) {
     return (
       <main className="auth-screen">
         <section className="auth-panel">
-          <ShieldCheck aria-hidden="true" />
+          <div className="auth-mark"><HardDrive aria-hidden="true" /></div>
+          <span className="eyebrow">Local disk maintenance</span>
           <h1>Disk Space Manager</h1>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              setToken(tokenInput.trim());
-            }}
-          >
-            <label htmlFor="token">API token</label>
-            <input
-              id="token"
-              value={tokenInput}
-              onChange={(event) => setTokenInput(event.target.value)}
-              autoFocus
-            />
-            <button type="submit">Connect</button>
-          </form>
+          {checkingToken ? (
+            <div className="loading-inline"><Loader2 className="spin" />Connecting to the local dashboard…</div>
+          ) : (
+            <>
+              <p>Start the server, then use its private token to connect:</p>
+              <code className="startup-command">uv run disk-space-manager-web</code>
+              {authError && <div className="alert" role="alert">{authError}</div>}
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const next = tokenInput.trim();
+                  if (next) setToken(next);
+                }}
+              >
+                <label htmlFor="token">API token</label>
+                <input id="token" type="password" value={tokenInput} onChange={(event) => setTokenInput(event.target.value)} autoFocus />
+                <button type="submit" className="primary-inline">Connect</button>
+              </form>
+              <p className="auth-note"><KeyRound />The token authorizes reports and confirmed actions on this computer. Keep it private.</p>
+            </>
+          )}
         </section>
       </main>
     );
   }
 
-  const currentJob = report?.job || activeJob;
-  const savingsData = report
-    ? [
-        { name: "Cache", bytes: report.savings.cache_size },
-        { name: "Old files", bytes: report.savings.old_files_size },
-        { name: "Duplicates", bytes: report.savings.exact_duplicate_reclaimable_size }
-      ]
-    : [];
-
   return (
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand-row">
-          <HardDrive aria-hidden="true" />
-          <div>
-            <h1>Disk Space Manager</h1>
-            <span>{jobs.length} jobs</span>
-          </div>
+          <div className="brand-icon"><HardDrive aria-hidden="true" /></div>
+          <div><h1>Disk Space Manager</h1><span>Local dashboard</span></div>
         </div>
-
-        <div className="section-switcher">
-          <button className={view === "reports" ? "active" : ""} onClick={() => setView("reports")}>
-            <Database />Reports
-          </button>
-          <button className={view === "protection" ? "active" : ""} onClick={() => setView("protection")}>
-            <ShieldCheck />Protected folders
-          </button>
+        <nav className="primary-nav" aria-label="Dashboard">
+          <NavButton active={view === "home"} icon={<Home />} label="Home" onClick={() => setView("home")} />
+          <NavButton active={view === "reports"} icon={<Database />} label="Reports" badge={jobsCount || undefined} onClick={() => setView("reports")} />
+          <NavButton active={view === "protection"} icon={<ShieldCheck />} label="Protected folders" onClick={() => openProtection("manage")} />
+          <NavButton active={view === "help"} icon={<BookOpen />} label="Help" onClick={() => openHelp()} />
+        </nav>
+        <div className="sidebar-guide">
+          <CircleHelp />
+          <strong>Not sure what to do?</strong>
+          <p>Start from Home or open the safety guides before changing files.</p>
+          <button onClick={() => openHelp()}>Open help center</button>
         </div>
-
-        {view === "reports" && <>
-        <form className="scan-form" onSubmit={(event) => submitJob(event).catch((err) => setError(err.message))}>
-          <label htmlFor="path">Path</label>
-          <input
-            id="path"
-            placeholder="Default: home directory"
-            value={scanPath}
-            onChange={(event) => setScanPath(event.target.value)}
-          />
-
-          <label htmlFor="age">Age threshold</label>
-          <div className="inline-control">
-            <input
-              id="age"
-              type="number"
-              min="1"
-              max="120"
-              value={ageMonths}
-              onChange={(event) => setAgeMonths(Number(event.target.value))}
-            />
-            <span>months</span>
-          </div>
-
-          <label className="toggle-row">
-            <input
-              type="checkbox"
-              checked={includeDuplicates}
-              onChange={(event) => setIncludeDuplicates(event.target.checked)}
-            />
-            Exact duplicates
-          </label>
-          <label className="toggle-row">
-            <input
-              type="checkbox"
-              checked={includeNearDuplicates}
-              disabled={!includeDuplicates}
-              onChange={(event) => setIncludeNearDuplicates(event.target.checked)}
-            />
-            Near duplicates
-          </label>
-
-          <button type="submit" className="primary-button">
-            <FolderSearch aria-hidden="true" />
-            Scan
-          </button>
-        </form>
-
-        <div className="job-list">
-          {jobs.map((job) => (
-            <button
-              key={job.id}
-              className={job.id === activeJob?.id ? "job-button active" : "job-button"}
-              onClick={() => selectJob(job).catch((err) => setError(err.message))}
-            >
-              <span>{shortPath(job.path)}</span>
-              <small>{job.status}</small>
-            </button>
-          ))}
-        </div>
-        </>}
+        <footer className="sidebar-footer">
+          <span><i />Connected locally</span>
+          <button onClick={disconnect}><LogOut />Disconnect</button>
+        </footer>
       </aside>
 
       <section className="content">
-        {view === "protection" ? (
-          <ProtectedFolders token={token} />
-        ) : <>
-        {error && <div className="alert">{error}</div>}
-
-        {currentJob && (
-          <section className="status-band">
-            <div>
-              <span className={`status-pill ${currentJob.status}`}>{currentJob.status}</span>
-              <h2>{currentJob.path}</h2>
-              <p>{currentJob.progress_message}</p>
-            </div>
-            <div className="progress-wrap" aria-label="Job progress">
-              <div style={{ width: `${currentJob.progress_percent}%` }} />
-            </div>
-          </section>
+        {view === "home" && (
+          <HomeDashboard
+            jobsCount={jobsCount}
+            openReports={openReports}
+            openProtection={openProtection}
+            openHelp={openHelp}
+          />
         )}
-
-        {!currentJob && (
-          <section className="empty-state">
-            <Database aria-hidden="true" />
-            <h2>No report selected</h2>
-          </section>
+        {view === "reports" && (
+          <ReportsDashboard
+            token={token}
+            intent={reportIntent}
+            onOpenHelp={openHelp}
+            onJobsChanged={setJobsCount}
+          />
         )}
-
-        {currentJob?.status === "running" || currentJob?.status === "queued" ? (
-          <section className="loading-state">
-            <Loader2 aria-hidden="true" className="spin" />
-            <span>{currentJob.progress_phase}</span>
-          </section>
-        ) : null}
-
-        {report && (
-          <>
-            <section className="metric-grid">
-              <Metric label="Scanned" value={String(report.scan.total_scanned)} />
-              <Metric label="Total size" value={report.summary.total_size_formatted} />
-              <Metric label="Potential" value={report.savings.total_savings_formatted} />
-              <Metric label="Errors" value={String(report.scan.error_count)} />
-            </section>
-
-            <section className="chart-grid">
-              <div className="panel">
-                <h2>File types</h2>
-                <ResponsiveContainer width="100%" height={260}>
-                  <PieChart>
-                    <Pie
-                      data={report.summary.top_extensions}
-                      dataKey="size"
-                      nameKey="extension"
-                      innerRadius={54}
-                      outerRadius={92}
-                      paddingAngle={2}
-                    >
-                      {report.summary.top_extensions.map((entry, index) => (
-                        <Cell key={entry.extension} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value: number) => formatBytes(value)} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="panel">
-                <h2>Potential savings</h2>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={savingsData}>
-                    <CartesianGrid vertical={false} stroke="#d7dde4" />
-                    <XAxis dataKey="name" />
-                    <YAxis tickFormatter={formatBytes} width={78} />
-                    <Tooltip formatter={(value: number) => formatBytes(value)} />
-                    <Bar dataKey="bytes" fill="#047857" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </section>
-
-            <section className="tables-grid">
-              <SizeTable title="Largest directories" rows={report.largest_directories} />
-              <SizeTable title="Largest files" rows={report.largest_files} />
-            </section>
-
-            <DuplicateReview report={report} />
-
-            <section className="candidate-grid">
-              <div className="panel">
-                <CandidateHeader
-                  icon={<Trash2 aria-hidden="true" />}
-                  title="Cache candidates"
-                  count={report.candidate_counts.cache}
-                  selected={selectedCache.size}
-                />
-                <CandidateTable
-                  candidates={report.cache_candidates}
-                  selected={selectedCache}
-                  setSelected={setSelectedCache}
-                  metadataKey="reason"
-                />
-                <ActionPanel
-                  action="clean"
-                  dryRun={dryRunClean}
-                  setDryRun={setDryRunClean}
-                  phrase={cleanPhrase}
-                  setPhrase={setCleanPhrase}
-                  expected={report.job.confirmation_phrases.clean}
-                  selectedCount={selectedCache.size}
-                  onRun={() => submitClean().catch((err) => setError(err.message))}
-                />
-              </div>
-
-              <div className="panel">
-                <CandidateHeader
-                  icon={<Archive aria-hidden="true" />}
-                  title="Old file candidates"
-                  count={report.candidate_counts.old}
-                  selected={selectedOld.size}
-                />
-                <label htmlFor="archive-target">Archive target</label>
-                <input
-                  id="archive-target"
-                  value={archiveTarget}
-                  onChange={(event) => setArchiveTarget(event.target.value)}
-                  placeholder="/path/to/archive"
-                />
-                <CandidateTable
-                  candidates={report.old_candidates}
-                  selected={selectedOld}
-                  setSelected={setSelectedOld}
-                  metadataKey="days_old"
-                />
-                <ActionPanel
-                  action="archive"
-                  dryRun={dryRunArchive}
-                  setDryRun={setDryRunArchive}
-                  phrase={archivePhrase}
-                  setPhrase={setArchivePhrase}
-                  expected={report.job.confirmation_phrases.archive}
-                  selectedCount={selectedOld.size}
-                  onRun={() => submitArchive().catch((err) => setError(err.message))}
-                />
-              </div>
-            </section>
-          </>
+        {view === "protection" && (
+          <ProtectedFolders token={token} intent={protectionIntent} onOpenHelp={openHelp} />
         )}
-
-        {actionResult && (
-          <section className="result-toast">
-            <CheckCircle2 aria-hidden="true" />
-            <span>
-              {actionResult.action_type} {actionResult.dry_run ? "dry run" : "completed"}:
-              {" "}{JSON.stringify(actionResult.result)}
-            </span>
-          </section>
+        {view === "help" && (
+          <HelpCenter
+            initialArticle={helpArticle}
+            onOpenReports={() => openReports("analyze")}
+            onOpenProtection={() => openProtection("manage")}
+          />
         )}
-        </>}
       </section>
     </main>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function HomeDashboard({ jobsCount, openReports, openProtection, openHelp }: {
+  jobsCount: number;
+  openReports: (intent: ReportIntent) => void;
+  openProtection: (intent: ProtectionIntent) => void;
+  openHelp: (article?: string) => void;
+}) {
   return (
-    <div className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
+    <section className="home-dashboard">
+      <header className="hero-panel">
+        <div>
+          <span className="eyebrow">Choose an outcome</span>
+          <h2>What would you like to do?</h2>
+          <p>Every file-changing workflow starts with a preview and ends with an explicit confirmation.</p>
+          <div className="button-row">
+            <button className="primary-inline" onClick={() => openReports("analyze")}><FileSearch />Start a safe scan</button>
+            <button onClick={() => openHelp("start")}><BookOpen />Read the quick start</button>
+          </div>
+        </div>
+        <div className="safety-card">
+          <ShieldCheck />
+          <strong>Safety is built in</strong>
+          <span>Dry-run previews</span>
+          <span>Exact confirmation phrases</span>
+          <span>Persistent action logs</span>
+        </div>
+      </header>
 
-function SizeTable({ title, rows }: { title: string; rows: { path: string; size_formatted: string }[] }) {
-  return (
-    <div className="panel">
-      <h2>{title}</h2>
-      <table>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.path}>
-              <td className="path-cell">{row.path}</td>
-              <td>{row.size_formatted}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function DuplicateReview({ report }: { report: Report }) {
-  const exactGroups = report.duplicates.exact.groups || [];
-  const nearGroups = report.duplicates.near.groups || [];
-  if (exactGroups.length === 0 && nearGroups.length === 0) {
-    return (
-      <section className="panel">
-        <h2>Duplicate review</h2>
-        <p className="muted">No duplicate groups found in this report.</p>
+      <div className="home-section-heading">
+        <div><span className="eyebrow">Disk reports</span><h3>Understand and free space</h3></div>
+        {jobsCount > 0 && <button onClick={() => openReports("analyze")}>{jobsCount} saved report{jobsCount === 1 ? "" : "s"}</button>}
+      </div>
+      <section className="task-grid">
+        <TaskCard icon={<BarChart3 />} tone="teal" title="Analyze storage" description="See total usage, file types, largest folders, and scan errors." safety="Read-only" onClick={() => openReports("analyze")} />
+        <TaskCard icon={<Trash2 />} tone="rose" title="Clean cache files" description="Find cache-like files, choose exactly what to remove, and preview first." safety="Preview + confirm" onClick={() => openReports("clean")} />
+        <TaskCard icon={<Archive />} tone="amber" title="Archive old files" description="Move selected old files to a drive or folder and leave symlinks behind." safety="Preview + confirm" onClick={() => openReports("archive")} />
+        <TaskCard icon={<CopyCheck />} tone="blue" title="Review duplicates" description="Find exact and near-duplicate groups for manual review." safety="Advisory only" onClick={() => openReports("duplicates")} />
       </section>
-    );
-  }
 
-  return (
-    <section className="duplicate-grid">
-      <DuplicateGroupList
-        title="Exact duplicates"
-        groups={exactGroups}
-        metric={report.duplicates.exact.reclaimable_size_formatted || "0.00 B"}
-      />
-      <DuplicateGroupList
-        title="Near duplicates"
-        groups={nearGroups}
-        metric={report.duplicates.near.reviewable_size_formatted || "0.00 B"}
-      />
+      <div className="home-section-heading"><div><span className="eyebrow">Resilient storage</span><h3>Protect and recover important folders</h3></div><button onClick={() => openHelp("protect-setup")}>Read the protection guide</button></div>
+      <section className="task-grid protection-tasks">
+        <TaskCard icon={<ShieldCheck />} tone="green" title="Protect a folder" description="Create encrypted independent replicas on external disks." safety="macOS + Restic" onClick={() => openProtection("create")} />
+        <TaskCard icon={<RotateCcw />} tone="purple" title="Restore files" description="Restore selected catalog files from any healthy connected replica." safety="Never overwrites" onClick={() => openProtection("restore")} />
+        <TaskCard icon={<KeyRound />} tone="slate" title="Recover a catalog" description="Rebuild protected-folder history on a fresh Mac from either disk." safety="Recovery key required" onClick={() => openProtection("recover")} />
+      </section>
     </section>
   );
 }
 
-function DuplicateGroupList({
-  title,
-  groups,
-  metric
-}: {
+function TaskCard({ icon, tone, title, description, safety, onClick }: {
+  icon: React.ReactNode;
+  tone: string;
   title: string;
-  groups: DuplicateGroup[];
-  metric: string;
+  description: string;
+  safety: string;
+  onClick: () => void;
 }) {
   return (
-    <div className="panel">
-      <div className="candidate-header">
-        <div>
-          <Database aria-hidden="true" />
-          <h2>{title}</h2>
-        </div>
-        <span>{metric}</span>
-      </div>
-      <div className="duplicate-list">
-        {groups.slice(0, 8).map((group, index) => (
-          <article key={`${title}-${index}`} className="duplicate-group">
-            <div>
-              <strong>{group.file_count} files</strong>
-              <span>
-                {group.reclaimable_size_formatted ||
-                  group.reviewable_size_formatted ||
-                  group.total_size_formatted ||
-                  ""}
-              </span>
-            </div>
-            {group.reason && <p>{group.reason}</p>}
-            <ul>
-              {group.files.slice(0, 5).map((file) => (
-                <li key={file.path}>
-                  <span>{file.path}</span>
-                  <small>{file.size_formatted}</small>
-                </li>
-              ))}
-            </ul>
-          </article>
-        ))}
-      </div>
-    </div>
+    <button className="task-card" onClick={onClick}>
+      <span className={`task-icon ${tone}`}>{icon}</span>
+      <span className="task-copy"><strong>{title}</strong><small>{description}</small></span>
+      <span className="task-safety">{safety}</span>
+    </button>
   );
 }
 
-function CandidateHeader({
-  icon,
-  title,
-  count,
-  selected
-}: {
-  icon: ReactNode;
-  title: string;
-  count: number;
-  selected: number;
+function NavButton({ active, icon, label, badge, onClick }: {
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  badge?: number;
+  onClick: () => void;
 }) {
-  return (
-    <div className="candidate-header">
-      <div>
-        {icon}
-        <h2>{title}</h2>
-      </div>
-      <span>
-        {selected}/{count}
-      </span>
-    </div>
-  );
+  return <button className={active ? "active" : ""} aria-current={active ? "page" : undefined} onClick={onClick}>{icon}<span>{label}</span>{badge ? <small>{badge}</small> : null}</button>;
 }
 
-function CandidateTable({
-  candidates,
-  selected,
-  setSelected,
-  metadataKey
-}: {
-  candidates: Candidate[];
-  selected: Set<string>;
-  setSelected: (next: Set<string>) => void;
-  metadataKey: string;
-}) {
-  const visible = candidates.slice(0, 250);
-  const allVisibleSelected = visible.length > 0 && visible.every((candidate) => selected.has(candidate.id));
-
-  function toggle(candidateId: string) {
-    const next = new Set(selected);
-    if (next.has(candidateId)) next.delete(candidateId);
-    else next.add(candidateId);
-    setSelected(next);
-  }
-
-  function toggleVisible() {
-    const next = new Set(selected);
-    if (allVisibleSelected) {
-      visible.forEach((candidate) => next.delete(candidate.id));
-    } else {
-      visible.forEach((candidate) => next.add(candidate.id));
-    }
-    setSelected(next);
-  }
-
-  return (
-    <div className="candidate-table">
-      <div className="table-toolbar">
-        <button type="button" onClick={toggleVisible}>
-          {allVisibleSelected ? "Clear" : "Select visible"}
-        </button>
-        <span>{visible.length} visible</span>
-      </div>
-      <table>
-        <tbody>
-          {visible.map((candidate) => (
-            <tr key={candidate.id}>
-              <td>
-                <input
-                  type="checkbox"
-                  checked={selected.has(candidate.id)}
-                  onChange={() => toggle(candidate.id)}
-                  aria-label={`Select ${candidate.path}`}
-                />
-              </td>
-              <td className="path-cell">{candidate.path}</td>
-              <td>{formatBytes(candidate.size)}</td>
-              <td>{String(candidate.metadata[metadataKey] ?? "")}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function ActionPanel({
-  action,
-  dryRun,
-  setDryRun,
-  phrase,
-  setPhrase,
-  expected,
-  selectedCount,
-  onRun
-}: {
-  action: string;
-  dryRun: boolean;
-  setDryRun: (value: boolean) => void;
-  phrase: string;
-  setPhrase: (value: string) => void;
-  expected: string;
-  selectedCount: number;
-  onRun: () => void;
-}) {
-  return (
-    <div className="action-panel">
-      <label className="toggle-row">
-        <input type="checkbox" checked={dryRun} onChange={(event) => setDryRun(event.target.checked)} />
-        Dry run
-      </label>
-      {!dryRun && (
-        <>
-          <label htmlFor={`${action}-phrase`}>Confirmation</label>
-          <input
-            id={`${action}-phrase`}
-            value={phrase}
-            onChange={(event) => setPhrase(event.target.value)}
-            placeholder={expected}
-          />
-        </>
-      )}
-      <button type="button" disabled={selectedCount === 0} onClick={onRun}>
-        Run {action}
-      </button>
-    </div>
-  );
-}
-
-function mergeJob(jobs: Job[], job: Job): Job[] {
-  const existing = jobs.filter((item) => item.id !== job.id);
-  return [job, ...existing];
-}
-
-function shortPath(path: string): string {
-  const parts = path.split("/");
-  return parts.slice(-2).join("/") || path;
-}
-
-function formatBytes(value: number): string {
-  if (!Number.isFinite(value)) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
-  let amount = value;
-  let unit = 0;
-  while (amount >= 1024 && unit < units.length - 1) {
-    amount /= 1024;
-    unit += 1;
-  }
-  return `${amount.toFixed(1)} ${units[unit]}`;
+function initialView(): View {
+  const value = window.location.hash.replace(/^#\//, "");
+  return ["reports", "protection", "help"].includes(value) ? value as View : "home";
 }

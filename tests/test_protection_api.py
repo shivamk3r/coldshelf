@@ -53,6 +53,11 @@ def test_authenticated_protected_folder_recovery_confirmation_catalog_and_job(tm
     app, source, volume, _, _ = _app(tmp_path)
     with TestClient(app) as client:
         assert client.get("/api/protection/folders").status_code == 401
+        preflight = client.get("/api/protection/preflight", headers=_auth())
+        assert preflight.status_code == 200
+        assert preflight.json()["ready"] is True
+        assert preflight.json()["restic_version"] == "0.19.1"
+        assert preflight.json()["minimum_restic_version"] == "0.19.1"
         response = client.post(
             "/api/protection/folders",
             headers=_auth(),
@@ -107,6 +112,33 @@ def test_authenticated_protected_folder_recovery_confirmation_catalog_and_job(tm
         ).json()
         assert detail["files"][0]["relative_path"] == "catalog.bin"
         assert detail["drives"][0]["mounted"] is True
+        assert detail["catalog"] == {
+            "query": "",
+            "limit": 500,
+            "offset": 0,
+            "total": 1,
+        }
+
+        paged = client.get(
+            f"/api/protection/folders/{created['id']}",
+            params={"query": "catalog", "limit": 1, "offset": 1},
+            headers=_auth(),
+        ).json()
+        assert paged["files"] == []
+        assert paged["catalog"] == {
+            "query": "catalog",
+            "limit": 1,
+            "offset": 1,
+            "total": 1,
+        }
+
+        no_match = client.get(
+            f"/api/protection/folders/{created['id']}",
+            params={"query": "missing", "limit": 1},
+            headers=_auth(),
+        ).json()
+        assert no_match["files"] == []
+        assert no_match["catalog"]["total"] == 0
 
         invalid_selection = client.post(
             f"/api/protection/folders/{created['id']}/operations",

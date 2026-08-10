@@ -42,6 +42,117 @@ def test_api_requires_token(tmp_path):
     assert client.get("/api/config", headers=_auth("secret")).status_code == 200
 
 
+def test_directory_browser_lists_only_directories_and_can_show_hidden(tmp_path):
+    source = tmp_path / "folders"
+    source.mkdir()
+    (source / "Visible").mkdir()
+    (source / ".hidden").mkdir()
+    (source / "ordinary.txt").write_text("not a folder")
+    app = create_app(repository=WebRepository(tmp_path / "web.sqlite3"), token="secret")
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/filesystem/directories",
+        params={"path": str(source)},
+        headers=_auth("secret"),
+    )
+    assert response.status_code == 200, response.text
+    listing = response.json()
+    assert listing["current_path"] == str(source.resolve())
+    assert listing["parent_path"] == str(source.parent.resolve())
+    assert {item["name"] for item in listing["directories"]} == {"Visible"}
+    assert {item["kind"] for item in listing["roots"]} >= {"home", "root"}
+
+    with_hidden = client.get(
+        "/api/filesystem/directories",
+        params={"path": str(source), "show_hidden": "true"},
+        headers=_auth("secret"),
+    )
+    assert {item["name"] for item in with_hidden.json()["directories"]} == {
+        ".hidden",
+        "Visible",
+    }
+
+
+def test_directory_browser_reports_missing_and_unreadable_paths(tmp_path, monkeypatch):
+    source = tmp_path / "unreadable"
+    source.mkdir()
+    app = create_app(repository=WebRepository(tmp_path / "web.sqlite3"), token="secret")
+    client = TestClient(app)
+
+    missing = client.get(
+        "/api/filesystem/directories",
+        params={"path": str(tmp_path / "missing")},
+        headers=_auth("secret"),
+    )
+    assert missing.status_code == 400
+    assert "does not exist" in missing.json()["detail"]
+
+    real_access = os.access
+    monkeypatch.setattr(
+        "disk_space_manager.web.services.os.access",
+        lambda path, mode: False
+        if Path(path).resolve() == source.resolve()
+        else real_access(path, mode),
+    )
+    unreadable = client.get(
+        "/api/filesystem/directories",
+        params={"path": str(source)},
+        headers=_auth("secret"),
+    )
+    assert unreadable.status_code == 400
+    assert "not readable" in unreadable.json()["detail"]
+
+
+def test_archive_target_discovery_returns_space_and_recommendation(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "disk_space_manager.web.services._detected_archive_drives",
+        lambda: [
+            {
+                "name": "Backup",
+                "path": "/Volumes/Backup",
+                "available_space": 123456,
+                "device": "/dev/disk9",
+                "fs_type": "ExFAT",
+            }
+        ],
+    )
+    app = create_app(repository=WebRepository(tmp_path / "web.sqlite3"), token="secret")
+    client = TestClient(app)
+
+    assert client.get("/api/archive-targets").status_code == 401
+    response = client.get("/api/archive-targets", headers=_auth("secret"))
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recommended_path"] == "/Volumes/Backup"
+    assert payload["drives"] == [
+        {
+            "name": "Backup",
+            "path": "/Volumes/Backup",
+            "available_space": 123456,
+            "device": "/dev/disk9",
+            "filesystem": "ExFAT",
+        }
+    ]
+
+
+def test_protection_preflight_explains_unsupported_platform(tmp_path, monkeypatch):
+    monkeypatch.setattr("disk_space_manager.web.app.platform_module.system", lambda: "Linux")
+    app = create_app(repository=WebRepository(tmp_path / "web.sqlite3"), token="secret")
+    client = TestClient(app)
+
+    response = client.get("/api/protection/preflight", headers=_auth("secret"))
+    assert response.status_code == 200
+    assert response.json() == {
+        "platform": "Linux",
+        "supported": False,
+        "ready": False,
+        "minimum_restic_version": "0.19.1",
+        "restic_version": None,
+        "message": "Protected folders currently require macOS.",
+    }
+
+
 def test_report_job_and_dry_run_clean_action(tmp_path, monkeypatch):
     monkeypatch.setattr("disk_space_manager.executor.ACTION_LOG_FILE", tmp_path / "actions.log")
     source = tmp_path / "source"
@@ -94,7 +205,14 @@ def test_report_job_and_dry_run_clean_action(tmp_path, monkeypatch):
     assert dry_run.status_code == 200, dry_run.text
     result = dry_run.json()
     assert result["result"]["deleted"] == 1
+    assert result["target_path"] is None
     assert (source / "cache.tmp").exists()
+
+    history = client.get(
+        f"/api/jobs/{job_id}/actions", headers=_auth("secret")
+    )
+    assert history.status_code == 200
+    assert history.json()["actions"] == [result]
 
 
 def test_dry_run_archive_action_uses_candidate_ids(tmp_path, monkeypatch):
@@ -134,8 +252,15 @@ def test_dry_run_archive_action_uses_candidate_ids(tmp_path, monkeypatch):
     )
     assert response.status_code == 200, response.text
     assert response.json()["result"]["moved"] == 1
+    assert response.json()["target_path"] == str(archive_target)
     assert (source / "old.bin").exists()
     assert not archive_target.exists()
+
+    history = client.get(
+        f"/api/jobs/{job_id}/actions", headers=_auth("secret")
+    ).json()["actions"]
+    assert history[0]["target_path"] == str(archive_target)
+    assert history[0]["dry_run"] is True
 
 
 def test_web_legacy_action_rejects_protected_candidate(tmp_path):

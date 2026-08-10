@@ -184,12 +184,24 @@ to restore a copy elsewhere.
 uv run disk-space-manager-web
 ```
 
-Open the printed tokenized URL and choose **Protected folders**. The dashboard
-shows coverage totals, mounted/offline drive cards, capacity and repository
-identity, structural/full verification dates, a searchable catalog, per-drive
-replica columns, progress, cancellation, and the same guarded actions. While
-this section is open it checks mounted volumes every five seconds and prompts
-for pending work. It installs no daemon or background agent.
+The command opens the authenticated dashboard automatically unless `--no-open`
+is supplied. Choose **Protected folders**. A readiness panel checks macOS and
+Restic 0.19.1+, and a lifecycle checklist guides key confirmation, disk
+enrollment, indexing, backup, verification, required replica coverage,
+optional eviction, and restore.
+
+The dashboard shows coverage totals, mounted/offline drive cards, capacity and
+repository identity, structural/full verification dates, a searchable and
+paginated catalog, per-drive replica columns, operation history, result/error
+details, and safe cancellation. It can rename a folder, change the required
+copy count with the lowering phrase, delete only the local catalog with the
+delete phrase, full-verify selected catalog files, and restore from an
+automatic or explicitly selected connected replica to the original path or a
+chosen folder. Eviction remains preview, eligibility review, then exact-phrase
+confirmation; blocked entries and the verification-level warning stay visible.
+Queued and running operations reconnect after reload. While this section is
+open it checks mounted volumes every five seconds and prompts for pending work.
+It installs no daemon or background agent.
 
 The time remaining shown during backup comes from Restic and applies only to
 the file-transfer phase. The following structural repository check is labeled
@@ -212,7 +224,8 @@ uv run disk-space-manager protect import \
 Enter the recovery key at the hidden prompt. The catalog is rebuilt from
 tagged Restic snapshots even if the original SQLite database is unavailable.
 Files are initially cataloged as evicted and can be restored normally. The web
-dashboard's **Recover** form performs the same import.
+dashboard's **Recover** form performs the same import and lets the user choose
+the required independent-copy policy.
 
 If a disk contains repositories for multiple protected folders, copy the set
 UUID shown in its `DiskSpaceManager/protected/<set-uuid>/repository.json`

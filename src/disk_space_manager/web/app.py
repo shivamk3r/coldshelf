@@ -2,11 +2,12 @@
 
 import asyncio
 import json
+import platform as platform_module
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +17,7 @@ from disk_space_manager.protection.repository import (
     DEFAULT_PROTECTION_DB_PATH,
     ProtectionRepository,
 )
+from disk_space_manager.protection.restic import MIN_RESTIC_VERSION
 from disk_space_manager.protection.service import ProtectionError, ProtectionService
 
 from .io_queue import HeavyIOQueue
@@ -25,6 +27,9 @@ from .repository import DEFAULT_DB_PATH, WebRepository
 from .schemas import (
     ActionRequest,
     ActionResponse,
+    ActionsListResponse,
+    ArchiveTargetsResponse,
+    DirectoryListResponse,
     JobCreateRequest,
     JobResponse,
     JobsListResponse,
@@ -38,11 +43,17 @@ from .schemas import (
     ProtectedFolderUpdateRequest,
     ProtectionOperation,
     ProtectionOperationRequest,
+    ProtectionPreflightResponse,
     RecoveryConfirmationRequest,
     RecoveryImportRequest,
 )
 from .security import make_token_dependency
-from .services import ActionService, ServiceError
+from .services import (
+    ActionService,
+    ServiceError,
+    available_archive_targets,
+    browse_directories,
+)
 
 
 STATIC_DIR = Path(__file__).with_name("static")
@@ -112,6 +123,27 @@ def create_app(
             "near_duplicate_detection": True,
         }
 
+    @app.get(
+        "/api/filesystem/directories",
+        response_model=DirectoryListResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def filesystem_directories(
+        path: Optional[str] = None, show_hidden: bool = False
+    ) -> dict:
+        try:
+            return browse_directories(path, show_hidden=show_hidden)
+        except ServiceError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    @app.get(
+        "/api/archive-targets",
+        response_model=ArchiveTargetsResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def archive_targets() -> dict:
+        return available_archive_targets()
+
     @app.post(
         "/api/jobs",
         response_model=JobResponse,
@@ -171,6 +203,18 @@ def create_app(
         report["job"] = repo.get_job(job_id)
         return report
 
+    @app.get(
+        "/api/jobs/{job_id}/actions",
+        response_model=ActionsListResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def job_actions(job_id: str) -> dict:
+        try:
+            repo.get_job(job_id)
+        except KeyError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+        return {"actions": repo.list_actions(job_id)}
+
     @app.post(
         "/api/jobs/{job_id}/actions/clean",
         response_model=ActionResponse,
@@ -205,6 +249,43 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     @app.get(
+        "/api/protection/preflight",
+        response_model=ProtectionPreflightResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def protection_preflight() -> dict:
+        system = platform_module.system()
+        minimum = ".".join(str(part) for part in MIN_RESTIC_VERSION)
+        if system != "Darwin":
+            return {
+                "platform": system,
+                "supported": False,
+                "ready": False,
+                "minimum_restic_version": minimum,
+                "restic_version": None,
+                "message": "Protected folders currently require macOS.",
+            }
+        try:
+            payload = protection.preflight()
+        except ProtectionError as exc:
+            return {
+                "platform": system,
+                "supported": True,
+                "ready": False,
+                "minimum_restic_version": minimum,
+                "restic_version": None,
+                "message": str(exc),
+            }
+        return {
+            "platform": system,
+            "supported": True,
+            "ready": True,
+            "minimum_restic_version": minimum,
+            "restic_version": str(payload.get("version") or "unknown"),
+            "message": "Protected folders are ready to use.",
+        }
+
+    @app.get(
         "/api/protection/folders",
         response_model=list[ProtectedFolder],
         dependencies=[Depends(verify_token)],
@@ -230,7 +311,10 @@ def create_app(
         dependencies=[Depends(verify_token)],
     )
     def get_protected_folder(
-        folder_id: str, query: str = "", limit: int = 500, offset: int = 0
+        folder_id: str,
+        query: str = "",
+        limit: int = Query(default=500, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
     ) -> dict:
         try:
             return protection.folder_detail(
