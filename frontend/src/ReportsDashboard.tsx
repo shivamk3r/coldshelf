@@ -48,7 +48,30 @@ import type { ActionResult, ArchiveTarget, Candidate, DuplicateGroup, Job, Repor
 export type ReportIntent = "analyze" | "clean" | "archive" | "duplicates" | "full";
 type ReportTab = "overview" | "large" | "duplicates" | "clean" | "archive" | "activity";
 
-const CHART_COLORS = ["#0f766e", "#2563eb", "#d97706", "#be123c", "#6d28d9", "#0891b2"];
+const CHART_COLORS = [
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+  "var(--chart-6)"
+];
+const CHART_AXIS_PROPS = {
+  axisLine: { stroke: "var(--control-border)" },
+  tick: { fill: "var(--muted)", fontSize: 12 },
+  tickLine: { stroke: "var(--control-border)" }
+};
+const CHART_TOOLTIP_PROPS = {
+  contentStyle: {
+    background: "var(--surface)",
+    border: "1px solid var(--control-border)",
+    borderRadius: "8px",
+    boxShadow: "var(--shadow)",
+    color: "var(--ink)"
+  },
+  itemStyle: { color: "var(--ink)" },
+  labelStyle: { color: "var(--ink)" }
+};
 const PAGE_SIZE = 25;
 
 const INTENT_COPY: Record<ReportIntent, { title: string; description: string; tab: ReportTab }> = {
@@ -582,10 +605,10 @@ function OverviewTab({ report }: { report: Report }) {
             <>
               <ResponsiveContainer width="100%" height={240}>
                 <PieChart aria-label="File type size chart">
-                  <Pie data={report.summary.top_extensions} dataKey="size" nameKey="extension" innerRadius={50} outerRadius={88} paddingAngle={2}>
+                  <Pie data={report.summary.top_extensions} dataKey="size" nameKey="extension" innerRadius={50} outerRadius={88} paddingAngle={2} stroke="var(--surface)">
                     {report.summary.top_extensions.map((entry, index) => <Cell key={entry.extension} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
                   </Pie>
-                  <Tooltip formatter={(value: number) => formatBytes(value)} />
+                  <Tooltip {...CHART_TOOLTIP_PROPS} formatter={(value: number) => formatBytes(value)} />
                 </PieChart>
               </ResponsiveContainer>
               <ul className="chart-legend">
@@ -600,11 +623,11 @@ function OverviewTab({ report }: { report: Report }) {
           <h2>Potential savings</h2>
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={savingsData} aria-label="Potential savings chart">
-              <CartesianGrid vertical={false} stroke="#d7dde4" />
-              <XAxis dataKey="name" />
-              <YAxis tickFormatter={formatBytes} width={72} />
-              <Tooltip formatter={(value: number) => formatBytes(value)} />
-              <Bar dataKey="bytes" fill="#0f766e" radius={[5, 5, 0, 0]} />
+              <CartesianGrid vertical={false} stroke="var(--line)" />
+              <XAxis dataKey="name" {...CHART_AXIS_PROPS} />
+              <YAxis tickFormatter={formatBytes} width={72} {...CHART_AXIS_PROPS} />
+              <Tooltip {...CHART_TOOLTIP_PROPS} cursor={{ fill: "rgb(96 165 250 / 8%)" }} formatter={(value: number) => formatBytes(value)} />
+              <Bar dataKey="bytes" fill="var(--chart-1)" radius={[5, 5, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
           <ul className="chart-legend compact">
