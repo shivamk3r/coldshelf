@@ -30,6 +30,7 @@ React UI -> FastAPI routes -> web services -> DiskScanner/FileAnalyzer
                  |                    v
                  |            SQLite + ActionExecutor
                  \-> BrowseJobManager -> DirectorySizer (memory only)
+                 \-> BrowseDeletionManager -> SQLite -> ActionExecutor
 ```
 
 The architectural goal is separation of concerns. Click declarations, web
@@ -234,8 +235,11 @@ Contains the optional FastAPI application and built React assets.
 - `jobs.py` queues long-running report jobs on a single background worker.
 - `browse_jobs.py` owns up to 32 cancellable in-memory Browse jobs and submits
   their recursive sizing to the shared heavy-I/O queue.
-- `repository.py` persists job history, report summaries, candidates, and
-  action results in SQLite.
+- `deletion_jobs.py` owns Browse eligibility, bounded one-use previews, the
+  10-second scheduler, atomic Undo, restart recovery, and execution-time safety
+  checks.
+- `repository.py` persists job history, report summaries, candidates, action
+  results, and Browse deletion batches/items in SQLite.
 - `schemas.py` contains Pydantic request/response models for jobs and actions.
 - `security.py` reads, creates, and validates API tokens.
 - `static/` contains the production React build served by FastAPI.
@@ -255,7 +259,11 @@ Contains the React/Vite dashboard source.
   results, and action history.
 - `src/BrowseDashboard.tsx` owns one-level navigation, progress/cancellation,
   allocated/logical totals, sorting/search/pagination, hidden-row visibility,
-  the 32-path session LRU, and protected-folder handoff eligibility.
+  the 32-path session LRU, protected-folder handoff eligibility, current-page
+  deletion selection, and the server review modal.
+- `src/BrowseDeletionToast.tsx` recovers and polls the one global deletion,
+  renders its server-time countdown/status, offers Undo only while authorized,
+  and invalidates every cached Browse listing after filesystem changes.
 - `src/ProtectedFolders.tsx` owns readiness, lifecycle, settings, drives,
   catalog paging, operation reconnection/cancellation, eviction, restore, and
   recovery import.
@@ -287,6 +295,14 @@ The web API is token-protected except for `/health`.
 - `GET /api/browse/scans/{scan_id}/result`: read completed one-level totals and
   entries.
 - `POST /api/browse/scans/{scan_id}/cancel`: cancel queued or running sizing.
+- `POST /api/browse/deletion-previews`: validate exact paths from a completed
+  scan and create a five-minute, one-use review.
+- `POST /api/browse/deletions`: consume a valid preview and persist one
+  10-second delayed batch.
+- `GET /api/browse/deletions/active` and
+  `GET /api/browse/deletions/{deletion_id}`: recover and poll batch/item state.
+- `POST /api/browse/deletions/{deletion_id}/undo`: atomically cancel only a
+  scheduled batch whose server deadline has not passed.
 - `GET /api/archive-targets`: list writable detected drives and free space.
 - `POST /api/jobs`: create a queued report job.
 - `GET /api/jobs`: list recent persisted jobs.
@@ -308,8 +324,10 @@ The web API is token-protected except for `/health`.
 
 Report, Browse, and protected-folder jobs share a `ThreadPoolExecutor` with one
 worker. Report state is persisted in SQLite so prior summaries remain visible
-after a restart. Browse state remains bounded and in memory only. The report
-repository stores actionable candidates and summaries, not every scanned file.
+after a restart. Browse scan/listing state remains bounded and in memory; Browse
+deletion batch/item state is persistent so delayed or interrupted work resumes.
+The report repository stores actionable candidates and summaries, not every
+scanned file.
 
 ## Command Flows
 
@@ -391,6 +409,17 @@ another token-authenticated client posts a report or Browse request.
    and reusing up to 32 cached completed paths unless Refresh is selected.
 5. For one eligible folder, prefill Protected folders and retain the Browse
    return path. Continue through all existing recovery and eviction gates.
+6. Select eligible regular files/folders from the completed scan. Bulk select
+   affects only the current 50-row page; navigation, refresh, or scheduling
+   clears selection.
+7. Create a one-use server preview, show its exact items/totals/blockers, and
+   require a second red confirmation to schedule.
+8. Keep affected rows disabled and visible while a global server-time toast
+   counts down for 10 seconds. Undo and the scheduler compete through one
+   atomic SQLite status transition.
+9. Queue expired work on the shared disk worker, revalidate each persisted
+   fingerprint and safety rule, delete top-level items independently without
+   following links or crossing devices, persist outcomes, and refresh Browse.
 
 ### Web report job
 
@@ -419,11 +448,13 @@ The test suite uses pytest and Click's `CliRunner`. It covers archive behavior,
 target precedence, archive target exclusions, repeated archive runs, direct
 executor behavior, Linux drive detection, scanner and analyzer progress,
 duplicate detection, `full-report` smoke coverage, web token/auth behavior,
-web report jobs, metadata-only Browse sizing/jobs/API, web dry-run actions,
-SQLite repository persistence, and profiling helper safety.
+web report jobs, metadata-only Browse sizing/jobs/API, persisted delayed Browse
+deletion and restart recovery, web dry-run actions, SQLite repository
+persistence, and profiling helper safety.
 
 The frontend test suite uses Vitest and React Testing Library for task
-navigation, help search, folder selection, Browse sizing and protected handoff,
+navigation, help search, folder selection, Browse sizing, protected handoff,
+deletion selection/review/countdown/Undo/recovery/error states,
 report tabs/candidate controls, preview invalidation, confirmation matching,
 archive destinations, protected settings, targeted verification,
 restore/recovery choices, catalog paging, and operation reconnection.

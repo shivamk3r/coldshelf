@@ -102,6 +102,8 @@ class BrowseEntryResponse(BaseModel):
     size_state: Literal["pending", "complete", "partial", "unavailable", "boundary"]
     protection_eligible: bool
     protection_blocker: Optional[str] = None
+    deletion_eligible: bool
+    deletion_blocker: Optional[str] = None
 
 
 class BrowseJobResponse(BaseModel):
@@ -149,6 +151,65 @@ class BrowseResultResponse(BaseModel):
     error_count: int = Field(ge=0)
     errors: List[str]
     measured_at: str
+
+
+class BrowseDeletionPreviewRequest(BaseModel):
+    scan_id: str = Field(min_length=1)
+    paths: List[Path] = Field(min_length=1, max_length=1000)
+
+
+class BrowseDeletionScheduleRequest(BaseModel):
+    preview_id: str = Field(min_length=1)
+
+
+class BrowseDeletionBlocker(BaseModel):
+    path: str
+    reason: str
+
+
+class BrowseDeletionItem(BaseModel):
+    path: str
+    name: str
+    kind: Literal["file", "directory"]
+    logical_bytes: int = Field(ge=0)
+    allocated_bytes: int = Field(ge=0)
+    status: Literal["pending", "deleted", "skipped", "failed"] = "pending"
+    error: Optional[str] = None
+
+
+class BrowseDeletionPreviewResponse(BaseModel):
+    id: str
+    expires_at: str
+    current_path: str
+    selected_count: int = Field(ge=0)
+    logical_bytes: int = Field(ge=0)
+    allocated_bytes: int = Field(ge=0)
+    can_schedule: bool
+    items: List[BrowseDeletionItem]
+    blockers: List[BrowseDeletionBlocker]
+
+
+class BrowseDeletionResponse(BaseModel):
+    id: str
+    status: Literal[
+        "scheduled", "queued", "running", "completed", "cancelled", "failed"
+    ]
+    current_path: str
+    selected_count: int = Field(ge=0)
+    logical_bytes: int = Field(ge=0)
+    allocated_bytes: int = Field(ge=0)
+    created_at: str
+    delete_after: str
+    server_time: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    error: Optional[str] = None
+    undo_available: bool
+    items: List[BrowseDeletionItem]
+
+
+class ActiveBrowseDeletionResponse(BaseModel):
+    deletion: Optional[BrowseDeletionResponse] = None
 
 
 class ArchiveTargetInfo(BaseModel):

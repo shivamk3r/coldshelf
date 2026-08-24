@@ -167,8 +167,8 @@ Runtime behavior:
   origin.
 - Binding to a non-localhost host is explicit and should be treated as network
   mode.
-- The backend uses a single shared background worker for heavy report, Browse,
-  and protected-folder jobs.
+- The backend uses a single shared background worker for heavy report, Browse
+  sizing/deletion, and protected-folder jobs.
 - Failure to open the operating-system browser is non-fatal; the printed URL
   remains available.
 
@@ -199,6 +199,17 @@ Routes:
   roots, totals, hidden totals, sized entries, fallback count, and errors.
 - `POST /api/browse/scans/{scan_id}/cancel`: cancel queued work immediately or
   request cooperative cancellation of running sizing.
+- `POST /api/browse/deletion-previews`: accept `{scan_id, paths}` from one
+  completed scan and return a five-minute, one-use review with exact eligible
+  items/totals and any all-or-nothing blockers.
+- `POST /api/browse/deletions`: accept `{preview_id}`, consume the preview, and
+  persist one deletion batch with a server-owned 10-second deadline.
+- `GET /api/browse/deletions/active`: return the one scheduled, queued, or
+  running global batch, if any, for refresh/navigation recovery.
+- `GET /api/browse/deletions/{deletion_id}`: return persisted batch status and
+  per-item outcomes.
+- `POST /api/browse/deletions/{deletion_id}/undo`: cancel atomically only while
+  status is `scheduled` and server time is before `delete_after`.
 - `GET /api/archive-targets`: writable detected drives with path, filesystem,
   device, free space, and the recommended path.
 - `POST /api/jobs`: create a queued report job.
@@ -238,8 +249,8 @@ Browse scan behavior:
 - Each entry reports canonical path; directory/file/symlink/other kind;
   hidden/readable/writable/symlink/mount-boundary flags; allocated/logical
   bytes; descendant file/folder counts; allocation fallback and error counts;
-  skipped mounts; protection eligibility/blocker; and pending, complete,
-  partial, unavailable, or boundary sizing state.
+  skipped mounts; protection and deletion eligibility/blockers; and pending,
+  complete, partial, unavailable, or boundary sizing state.
 - Allocated bytes use `st_blocks × 512` and fall back to `st_size` only when
   block metadata is unavailable. Logical bytes use `st_size`.
 - Hidden descendants always contribute to totals. The frontend hidden toggle
@@ -257,6 +268,41 @@ Browse scan behavior:
   external sources, unreadable/unwritable paths, and overlaps. Exact matches
   open the existing protected folder. New handoffs prefill name/path and two
   required copies without bypassing any protected-folder safety gate.
+
+Browse deletion behavior:
+
+- Selection is available only after sizing completes. Individual selection is
+  scoped to the current scan; the header selects eligible rows only on the
+  current 50-row page. Navigation, Refresh, and successful scheduling reset it.
+- Preview validation requires exact immediate-child paths from that scan and
+  is all-or-nothing. A preview expires after five minutes and is consumed by
+  its first scheduling attempt, successful or not.
+- Allowed paths are strict descendants of Home or a detected writable
+  external-drive root. Home, drive roots, outside paths, symbolic links,
+  special files, unreadable or partial folders, nested mount boundaries,
+  protected-folder overlaps in either direction, and active application-state
+  paths are blocked.
+- Preview captures `lstat` device, inode, mode/type, size, modification time,
+  and change time. Scheduling and execution revalidate the fingerprint, root
+  device, parent path, protection state, application state, and writability.
+- One active batch is enforced by a partial unique SQLite index. Status is
+  `scheduled`, `queued`, `running`, `completed`, `cancelled`, or `failed`;
+  items are `pending`, `deleted`, `skipped`, or `failed`.
+- The Undo endpoint and deadline scheduler use conditional atomic updates, so
+  only one can transition a scheduled batch at the boundary. Undo disappears
+  at the authoritative server deadline even if disk execution waits in queue.
+- Items stay at their original paths during the countdown; Trash and
+  quarantine are not used. Pending rows stay visible and disable open,
+  protection, and selection actions.
+- The deletion executor handles each top-level item independently. It validates
+  an entire directory tree before removal, unlinks nested symbolic links
+  without following them, refuses another device, and records preview,
+  schedule, cancellation, deletion, skip, and failure evidence in the action
+  log.
+- Scheduled work past its deadline runs when the server starts. Queued/running
+  batches are requeued and reconciled after an interrupted process. Completion
+  or batch failure clears all frontend Browse caches and refreshes the open
+  listing.
 
 Job creation request:
 
@@ -337,10 +383,13 @@ Persistence rules:
 - The repository stores actionable candidates and report summaries, not every
   scanned file.
 - Action results are persisted after clean/archive requests.
+- Browse deletion batches persist deadline, status, selected counts/totals,
+  current path, allowed root/device, timestamps, and errors. Item rows persist
+  path, size totals, filesystem fingerprint, status, result, and error.
 - Confirmation phrases are derived from action type and job ID; they are not
   separately stored.
-- Browse jobs, listings, and results are memory-only and never written to these
-  tables.
+- Browse scan jobs, listings, and results are memory-only and never written to
+  these tables; only the deletion lifecycle is persisted.
 
 ## Scan Specification
 
@@ -483,12 +532,21 @@ Logging behavior:
 - Web mutating actions must operate on candidate IDs produced by a completed
   report job, not arbitrary request paths.
 - Web real actions must require the expected confirmation phrase.
+- Browse deletion is the deliberate exception to candidate IDs and typed
+  phrases: it accepts only exact paths bound to a completed Browse scan, then
+  requires a one-use server preview and a second explicit red confirmation.
+- Browse deletion must keep the strict allowed-root, immediate-child,
+  protected/application-state, mount, type, completeness, fingerprint, and
+  one-device checks described above at preview, scheduling, and execution.
+- Browse Undo must remain a backend atomic transition available only before the
+  10-second server deadline; queued/running deletion cannot be cancelled.
 - Dry-run behavior must remain non-mutating for user files and archive output.
 - Action logging must remain enabled for executed and dry-run action paths.
 - Automated tests and validation must use temporary directories or small
   intentional paths.
 - Automated validation must not run destructive commands against home
   directories, system directories, or external drives.
+- Browser and backend deletion smoke tests must use injected temporary roots.
 - Archive logic must preserve symlink behavior at original file locations.
 - Previously archived output under an archive target inside the scan path must
   not be re-archived.
@@ -534,6 +592,11 @@ The current test suite covers these behavioral invariants:
   totals, allocation fallback, symbolic links, mount boundaries, partial
   errors, cancellation, authentication, SSE termination, bounded retention,
   and shared-queue behavior.
+- Browse deletion covers authentication, allowed-root and immediate-child
+  enforcement, symlink/protected/application-state blocking, stale and one-use
+  previews, fingerprints, one-active-batch enforcement, file/folder removal,
+  nested symlink safety, independent skipped items, deadline/Undo races,
+  action logging, and scheduled/running restart recovery using temporary roots.
 - Action-history responses preserve archive target paths.
 - Protected preflight and catalog query/limit/offset metadata are covered.
 - Server startup covers default opening, `--no-open`, wildcard/IPv6 URLs,
@@ -541,7 +604,9 @@ The current test suite covers these behavioral invariants:
 - SQLite repository persistence covers jobs, reports, candidates, and action
   results.
 - Frontend coverage verifies task navigation, help search, directory selection,
-  Browse navigation/sizing/protection handoff, report tabs/filtering/selection,
+  Browse navigation/sizing/protection handoff and deletion
+  selection/review/pending/countdown/Undo/recovery states, report
+  tabs/filtering/selection,
   preview invalidation, exact confirmations, archive payloads, protected
   settings/deletion guards, selected full verify, restore/import options,
   pagination, operation recovery, and cancellation.

@@ -28,16 +28,19 @@ const ARTICLES: HelpArticle[] = [
     id: "browse",
     category: "Browse",
     title: "Browse folders by size",
-    summary: "Measure one filesystem level at a time and start a safe protected offload for inactive folders.",
+    summary: "Measure one filesystem level, protect inactive folders, or permanently delete an exact reviewed selection with 10 seconds to Undo.",
     steps: [
       "Open Browse. The home folder is selected by default, and every immediate file and folder is listed.",
       "Wait for recursive folder sizing to finish. On-disk size is sorted largest first; logical size shows file content length.",
       "Open a folder name to navigate deeper. Hidden items stay included in totals even when their rows are hidden.",
-      "Choose Protect & offload on an eligible folder, then complete recovery-key, replica, verification, preview, and eviction steps in Protected folders."
+      "Choose Protect & offload on an eligible folder, then complete recovery-key, replica, verification, preview, and eviction steps in Protected folders.",
+      "For permanent deletion, select eligible rows (the header selects only the current 50-row page), choose Delete Permanently, review the server-validated list and totals, then use the second red confirmation.",
+      "Use Undo in the global countdown toast within 10 seconds. After the server deadline, the toast shows queued or running status and the operation can no longer be cancelled."
     ],
     notes: [
-      "Browse never reads file contents or changes files.",
-      "Symbolic links and nested mounted filesystems are not followed.",
+      "Browse sizing reads metadata, not file contents. Confirmed deletion permanently changes the filesystem and does not use Trash.",
+      "Home and drive roots, symbolic links, special files, mount boundaries, incomplete or unreadable folders, protected-folder overlaps, application state, outside paths, and changed items are blocked with a reason.",
+      "Nested symbolic links are removed as links rather than followed, and deletion never crosses into another filesystem device.",
       "Allocated size is advisory: APFS clones, snapshots, hard links, compression, permissions, and skipped mounts can make it differ from macOS storage usage or reclaimable space."
     ]
   },

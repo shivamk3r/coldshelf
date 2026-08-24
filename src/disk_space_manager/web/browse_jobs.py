@@ -43,11 +43,20 @@ class BrowseJobManager:
         *,
         max_jobs: int = MAX_BROWSE_JOBS,
         sizer: Optional[DirectorySizer] = None,
+        default_path: Optional[Path] = None,
+        deletion_annotator: Optional[
+            Callable[
+                [List[Dict[str, Any]], Path, List[Dict[str, Any]]],
+                List[Dict[str, Any]],
+            ]
+        ] = None,
     ) -> None:
         self.io_queue = io_queue
         self.roots_provider = roots_provider
         self.max_jobs = max(1, int(max_jobs))
         self.sizer = sizer or DirectorySizer()
+        self.default_path = Path(default_path) if default_path is not None else None
+        self.deletion_annotator = deletion_annotator
         self._jobs: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
         self._prepared: Dict[str, PreparedDirectory] = {}
         self._results: Dict[str, Dict[str, Any]] = {}
@@ -56,7 +65,12 @@ class BrowseJobManager:
         self._lock = RLock()
 
     def submit(self, path: Optional[str]) -> Dict[str, Any]:
-        prepared = self.sizer.prepare(path)
+        requested_path = (
+            str(self.default_path)
+            if path is None and self.default_path is not None
+            else path
+        )
+        prepared = self.sizer.prepare(requested_path)
         roots = self.roots_provider()
         scan_id = str(uuid.uuid4())
         created_at = _utc_now()
@@ -82,10 +96,13 @@ class BrowseJobManager:
         }
         listing = prepared.initial_listing()
         listing["roots"] = copy.deepcopy(roots)
-        listing["entries"] = [
+        listing_entries = [
             _annotate_protection_eligibility(entry, roots)
             for entry in listing["entries"]
         ]
+        listing["entries"] = self._annotate_deletion(
+            listing_entries, prepared.root, roots
+        )
         cancel_event = Event()
         with self._lock:
             self._jobs[scan_id] = job
@@ -168,10 +185,13 @@ class BrowseJobManager:
         try:
             result = self.sizer.scan(prepared, event, progress)
             result["roots"] = copy.deepcopy(roots)
-            result["entries"] = [
+            result_entries = [
                 _annotate_protection_eligibility(entry, roots)
                 for entry in result["entries"]
             ]
+            result["entries"] = self._annotate_deletion(
+                result_entries, prepared.root, roots
+            )
             with self._lock:
                 current = self._jobs.get(scan_id)
                 if current is None:
@@ -201,6 +221,22 @@ class BrowseJobManager:
             with self._lock:
                 self._prepared.pop(scan_id, None)
                 self._trim_locked()
+
+    def _annotate_deletion(
+        self,
+        entries: List[Dict[str, Any]],
+        current_path: Path,
+        roots: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        if self.deletion_annotator is not None:
+            return self.deletion_annotator(entries, current_path, roots)
+        annotated = []
+        for entry in entries:
+            item = copy.deepcopy(entry)
+            item["deletion_eligible"] = False
+            item["deletion_blocker"] = "Browse deletion is unavailable"
+            annotated.append(item)
+        return annotated
 
     def _mark_cancelled_locked(self, scan_id: str, message: str) -> None:
         job = self._jobs[scan_id]

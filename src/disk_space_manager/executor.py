@@ -2,7 +2,9 @@
 
 import json
 import logging
+import os
 import shutil
+import stat as stat_module
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional, Callable
@@ -115,6 +117,54 @@ class ActionExecutor:
             'total_size': total_size,
             'total_size_formatted': format_size(total_size)
         }
+
+    def delete_browse_entry(
+        self, item: Dict, *, deletion_id: str
+    ) -> Dict[str, Optional[str]]:
+        """Delete one validated Browse file or directory without crossing mounts."""
+        path = Path(str(item["path"]))
+        size = int(item.get("logical_bytes") or 0)
+        details = {
+            "source": "browse",
+            "deletion_id": deletion_id,
+            "kind": str(item["kind"]),
+        }
+        if self.dry_run:
+            self.log_action(
+                "DELETE", path, size=size, success=True, details=details
+            )
+            return {"status": "deleted", "error": None}
+
+        try:
+            metadata = os.lstat(path)
+            if not _browse_identity_matches(metadata, item):
+                raise OSError("Item changed after deletion was scheduled")
+            if item["kind"] == "file":
+                if not stat_module.S_ISREG(metadata.st_mode):
+                    raise OSError("Selected item is no longer a regular file")
+                path.unlink()
+            elif item["kind"] == "directory":
+                if not stat_module.S_ISDIR(metadata.st_mode):
+                    raise OSError("Selected item is no longer a directory")
+                _validate_one_filesystem_tree(path, int(metadata.st_dev))
+                _remove_one_filesystem_tree(path, int(metadata.st_dev))
+            else:
+                raise OSError("Only regular files and directories can be deleted")
+            self.log_action(
+                "DELETE", path, size=size, success=True, details=details
+            )
+            return {"status": "deleted", "error": None}
+        except (OSError, PermissionError) as exc:
+            message = str(exc) or exc.__class__.__name__
+            self.log_action(
+                "DELETE",
+                path,
+                size=size,
+                success=False,
+                error=message,
+                details=details,
+            )
+            return {"status": "failed", "error": message}
     
     def archive_files(self, files: List[Dict], target_base: Path,
                       source_base: Path, confirm: bool = True) -> Dict:
@@ -179,14 +229,14 @@ class ActionExecutor:
             'total_size': total_size,
             'total_size_formatted': format_size(total_size)
         }
-    
+
     def get_action_summary(self) -> Dict:
         """Get summary of all actions performed."""
         total_actions = len(self.action_log)
         successful = sum(1 for a in self.action_log if a['success'])
         failed = total_actions - successful
         total_size = sum(a['size'] for a in self.action_log)
-        
+
         return {
             'total_actions': total_actions,
             'successful': successful,
@@ -195,3 +245,59 @@ class ActionExecutor:
             'total_size_formatted': format_size(total_size),
             'log_file': str(self.log_file)
         }
+
+
+def _browse_identity_matches(metadata: os.stat_result, item: Dict) -> bool:
+    return (
+        int(metadata.st_dev) == int(item["device"])
+        and int(metadata.st_ino) == int(item["inode"])
+        and int(metadata.st_mode) == int(item["mode"])
+        and int(metadata.st_size) == int(item["size"])
+        and int(metadata.st_mtime_ns) == int(item["mtime_ns"])
+        and int(metadata.st_ctime_ns) == int(item["ctime_ns"])
+    )
+
+
+def _validate_one_filesystem_tree(directory: Path, root_device: int) -> None:
+    metadata = os.lstat(directory)
+    if not stat_module.S_ISDIR(metadata.st_mode):
+        raise OSError(f"Directory changed before deletion: {directory}")
+    if int(metadata.st_dev) != root_device:
+        raise OSError(f"Deletion cannot cross a mounted filesystem: {directory}")
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            child_metadata = entry.stat(follow_symlinks=False)
+            if stat_module.S_ISDIR(child_metadata.st_mode):
+                if int(child_metadata.st_dev) != root_device:
+                    raise OSError(
+                        f"Deletion cannot cross a mounted filesystem: {entry.path}"
+                    )
+                _validate_one_filesystem_tree(Path(entry.path), root_device)
+
+
+def _remove_one_filesystem_tree(directory: Path, root_device: int) -> None:
+    directory_metadata = os.lstat(directory)
+    if not stat_module.S_ISDIR(directory_metadata.st_mode):
+        raise OSError(f"Directory changed before deletion: {directory}")
+    if int(directory_metadata.st_dev) != root_device:
+        raise OSError(f"Deletion cannot cross a mounted filesystem: {directory}")
+    with os.scandir(directory) as entries:
+        children = list(entries)
+    for entry in children:
+        metadata = entry.stat(follow_symlinks=False)
+        if stat_module.S_ISDIR(metadata.st_mode):
+            if int(metadata.st_dev) != root_device:
+                raise OSError(
+                    f"Deletion cannot cross a mounted filesystem: {entry.path}"
+                )
+            _remove_one_filesystem_tree(Path(entry.path), root_device)
+        else:
+            os.unlink(entry.path)
+    current_metadata = os.lstat(directory)
+    if (
+        int(current_metadata.st_dev) != int(directory_metadata.st_dev)
+        or int(current_metadata.st_ino) != int(directory_metadata.st_ino)
+        or not stat_module.S_ISDIR(current_metadata.st_mode)
+    ):
+        raise OSError(f"Directory changed during deletion: {directory}")
+    os.rmdir(directory)

@@ -13,6 +13,10 @@ from .schemas import JobCreateRequest
 DEFAULT_DB_PATH = Path.home() / ".disk-space-manager-web.sqlite3"
 
 
+class ActiveBrowseDeletionError(RuntimeError):
+    """Raised when a second Browse deletion is scheduled concurrently."""
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -76,6 +80,46 @@ class WebRepository:
                     result_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS browse_deletions (
+                    id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    current_path TEXT NOT NULL,
+                    allowed_root TEXT NOT NULL,
+                    allowed_root_device INTEGER NOT NULL,
+                    selected_count INTEGER NOT NULL,
+                    logical_bytes INTEGER NOT NULL,
+                    allocated_bytes INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    delete_after TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    error TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS browse_deletion_items (
+                    deletion_id TEXT NOT NULL
+                        REFERENCES browse_deletions(id) ON DELETE CASCADE,
+                    position INTEGER NOT NULL,
+                    path TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    logical_bytes INTEGER NOT NULL,
+                    allocated_bytes INTEGER NOT NULL,
+                    device INTEGER NOT NULL,
+                    inode INTEGER NOT NULL,
+                    mode INTEGER NOT NULL,
+                    size INTEGER NOT NULL,
+                    mtime_ns INTEGER NOT NULL,
+                    ctime_ns INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    error TEXT,
+                    PRIMARY KEY (deletion_id, position)
+                );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_browse_deletions_single_active
+                    ON browse_deletions ((1))
+                    WHERE status IN ('scheduled', 'queued', 'running');
                 """
             )
 
@@ -318,6 +362,214 @@ class WebRepository:
             ).fetchall()
         return [_row_to_action(row) for row in rows]
 
+    def create_browse_deletion(
+        self,
+        *,
+        deletion_id: str,
+        current_path: str,
+        allowed_root: str,
+        allowed_root_device: int,
+        items: List[Dict[str, Any]],
+        created_at: str,
+        delete_after: str,
+    ) -> Dict[str, Any]:
+        """Persist one globally active delayed Browse deletion."""
+        logical_bytes = sum(int(item["logical_bytes"]) for item in items)
+        allocated_bytes = sum(int(item["allocated_bytes"]) for item in items)
+        try:
+            with self._write() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO browse_deletions (
+                        id, status, current_path, allowed_root,
+                        allowed_root_device, selected_count, logical_bytes,
+                        allocated_bytes, created_at, delete_after
+                    )
+                    VALUES (?, 'scheduled', ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        deletion_id,
+                        current_path,
+                        allowed_root,
+                        int(allowed_root_device),
+                        len(items),
+                        logical_bytes,
+                        allocated_bytes,
+                        created_at,
+                        delete_after,
+                    ),
+                )
+                conn.executemany(
+                    """
+                    INSERT INTO browse_deletion_items (
+                        deletion_id, position, path, name, kind,
+                        logical_bytes, allocated_bytes, device, inode, mode,
+                        size, mtime_ns, ctime_ns, status
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                    """,
+                    [
+                        (
+                            deletion_id,
+                            position,
+                            item["path"],
+                            item["name"],
+                            item["kind"],
+                            int(item["logical_bytes"]),
+                            int(item["allocated_bytes"]),
+                            int(item["device"]),
+                            int(item["inode"]),
+                            int(item["mode"]),
+                            int(item["size"]),
+                            int(item["mtime_ns"]),
+                            int(item["ctime_ns"]),
+                        )
+                        for position, item in enumerate(items)
+                    ],
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ActiveBrowseDeletionError(
+                "Another Browse deletion is already active"
+            ) from exc
+        return self.get_browse_deletion(deletion_id)
+
+    def get_browse_deletion(self, deletion_id: str) -> Dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM browse_deletions WHERE id = ?", (deletion_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(deletion_id)
+            item_rows = conn.execute(
+                """
+                SELECT * FROM browse_deletion_items
+                WHERE deletion_id = ? ORDER BY position ASC
+                """,
+                (deletion_id,),
+            ).fetchall()
+        return _row_to_browse_deletion(row, item_rows)
+
+    def get_active_browse_deletion(self) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM browse_deletions
+                WHERE status IN ('scheduled', 'queued', 'running')
+                ORDER BY created_at ASC LIMIT 1
+                """
+            ).fetchone()
+            if row is None:
+                return None
+            item_rows = conn.execute(
+                """
+                SELECT * FROM browse_deletion_items
+                WHERE deletion_id = ? ORDER BY position ASC
+                """,
+                (row["id"],),
+            ).fetchall()
+        return _row_to_browse_deletion(row, item_rows)
+
+    def list_recoverable_browse_deletions(self) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM browse_deletions
+                WHERE status IN ('scheduled', 'queued', 'running')
+                ORDER BY created_at ASC
+                """
+            ).fetchall()
+        return [self.get_browse_deletion(str(row["id"])) for row in rows]
+
+    def requeue_interrupted_browse_deletions(self) -> None:
+        with self._write() as conn:
+            conn.execute(
+                """
+                UPDATE browse_deletions
+                SET status = 'queued', started_at = NULL,
+                    error = 'Resuming after server restart'
+                WHERE status IN ('queued', 'running')
+                """
+            )
+
+    def claim_due_browse_deletion(self, deletion_id: str, now: str) -> bool:
+        with self._write() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE browse_deletions SET status = 'queued', error = NULL
+                WHERE id = ? AND status = 'scheduled' AND delete_after <= ?
+                """,
+                (deletion_id, now),
+            )
+        return cursor.rowcount == 1
+
+    def cancel_browse_deletion(
+        self, deletion_id: str, now: str, finished_at: str
+    ) -> bool:
+        with self._write() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE browse_deletions
+                SET status = 'cancelled', finished_at = ?, error = NULL
+                WHERE id = ? AND status = 'scheduled' AND delete_after > ?
+                """,
+                (finished_at, deletion_id, now),
+            )
+        return cursor.rowcount == 1
+
+    def mark_browse_deletion_running(
+        self, deletion_id: str, started_at: str
+    ) -> bool:
+        with self._write() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE browse_deletions
+                SET status = 'running', started_at = ?, error = NULL
+                WHERE id = ? AND status = 'queued'
+                """,
+                (started_at, deletion_id),
+            )
+        return cursor.rowcount == 1
+
+    def update_browse_deletion_item(
+        self,
+        deletion_id: str,
+        position: int,
+        outcome: str,
+        error: Optional[str] = None,
+    ) -> None:
+        with self._write() as conn:
+            conn.execute(
+                """
+                UPDATE browse_deletion_items SET status = ?, error = ?
+                WHERE deletion_id = ? AND position = ? AND status = 'pending'
+                """,
+                (outcome, error, deletion_id, int(position)),
+            )
+
+    def complete_browse_deletion(self, deletion_id: str, finished_at: str) -> None:
+        with self._write() as conn:
+            conn.execute(
+                """
+                UPDATE browse_deletions
+                SET status = 'completed', finished_at = ?, error = NULL
+                WHERE id = ? AND status IN ('queued', 'running')
+                """,
+                (finished_at, deletion_id),
+            )
+
+    def fail_browse_deletion(
+        self, deletion_id: str, finished_at: str, error: str
+    ) -> None:
+        with self._write() as conn:
+            conn.execute(
+                """
+                UPDATE browse_deletions
+                SET status = 'failed', finished_at = ?, error = ?
+                WHERE id = ? AND status IN ('scheduled', 'queued', 'running')
+                """,
+                (finished_at, error, deletion_id),
+            )
+
     def _connect(self):
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
@@ -392,6 +644,32 @@ def _row_to_action(row: sqlite3.Row) -> Dict[str, Any]:
         "result": json.loads(row["result_json"]),
         "created_at": row["created_at"],
     }
+
+
+def _row_to_browse_deletion(
+    row: sqlite3.Row, item_rows: Iterable[sqlite3.Row]
+) -> Dict[str, Any]:
+    deletion = dict(row)
+    deletion["selected_count"] = int(deletion["selected_count"])
+    deletion["logical_bytes"] = int(deletion["logical_bytes"])
+    deletion["allocated_bytes"] = int(deletion["allocated_bytes"])
+    deletion["allowed_root_device"] = int(deletion["allowed_root_device"])
+    deletion["items"] = [
+        {
+            **dict(item),
+            "position": int(item["position"]),
+            "logical_bytes": int(item["logical_bytes"]),
+            "allocated_bytes": int(item["allocated_bytes"]),
+            "device": int(item["device"]),
+            "inode": int(item["inode"]),
+            "mode": int(item["mode"]),
+            "size": int(item["size"]),
+            "mtime_ns": int(item["mtime_ns"]),
+            "ctime_ns": int(item["ctime_ns"]),
+        }
+        for item in item_rows
+    ]
+    return deletion
 
 
 def _json_dumps(value: Any) -> str:

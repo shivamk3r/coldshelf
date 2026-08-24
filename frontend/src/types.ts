@@ -190,6 +190,8 @@ export interface BrowseEntry {
   size_state: BrowseSizeState;
   protection_eligible: boolean;
   protection_blocker?: string | null;
+  deletion_eligible: boolean;
+  deletion_blocker?: string | null;
 }
 
 export interface BrowseListing {
@@ -211,6 +213,58 @@ export interface BrowseResult extends BrowseListing {
   error_count: number;
   errors: string[];
   measured_at: string;
+}
+
+export type BrowseDeletionStatus =
+  | "scheduled"
+  | "queued"
+  | "running"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+export interface BrowseDeletionItem {
+  path: string;
+  name: string;
+  kind: "file" | "directory";
+  logical_bytes: number;
+  allocated_bytes: number;
+  status: "pending" | "deleted" | "skipped" | "failed";
+  error?: string | null;
+}
+
+export interface BrowseDeletionBlocker {
+  path: string;
+  reason: string;
+}
+
+export interface BrowseDeletionPreview {
+  id: string;
+  expires_at: string;
+  current_path: string;
+  selected_count: number;
+  logical_bytes: number;
+  allocated_bytes: number;
+  can_schedule: boolean;
+  items: BrowseDeletionItem[];
+  blockers: BrowseDeletionBlocker[];
+}
+
+export interface BrowseDeletion {
+  id: string;
+  status: BrowseDeletionStatus;
+  current_path: string;
+  selected_count: number;
+  logical_bytes: number;
+  allocated_bytes: number;
+  created_at: string;
+  delete_after: string;
+  server_time: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error?: string | null;
+  undo_available: boolean;
+  items: BrowseDeletionItem[];
 }
 
 export interface BrowseScanCreated {

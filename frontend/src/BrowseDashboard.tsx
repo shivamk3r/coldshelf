@@ -16,6 +16,9 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  ShieldAlert,
+  Trash2,
+  X,
   XCircle
 } from "lucide-react";
 
@@ -24,9 +27,13 @@ import {
   createBrowseScan,
   getBrowseResult,
   listProtectedFolders,
-  openBrowseEvents
+  openBrowseEvents,
+  previewBrowseDeletion,
+  scheduleBrowseDeletion
 } from "./api";
 import type {
+  BrowseDeletion,
+  BrowseDeletionPreview,
   BrowseEntry,
   BrowseListing,
   BrowseResult,
@@ -65,7 +72,10 @@ export function BrowseDashboard({
   onPathChanged,
   onProtect,
   onOpenProtected,
-  onOpenHelp
+  onOpenHelp,
+  activeDeletion = null,
+  refreshVersion = 0,
+  onDeletionScheduled = () => undefined
 }: {
   token: string;
   initialPath?: string;
@@ -73,6 +83,9 @@ export function BrowseDashboard({
   onProtect: (seed: BrowseProtectionSeed) => void;
   onOpenProtected: (folderId: string, returnPath: string) => void;
   onOpenHelp: (article?: string) => void;
+  activeDeletion?: BrowseDeletion | null;
+  refreshVersion?: number;
+  onDeletionScheduled?: (deletion: BrowseDeletion) => void;
 }) {
   const [scan, setScan] = useState<BrowseScan | null>(null);
   const [listing, setListing] = useState<BrowseListing | null>(null);
@@ -86,9 +99,16 @@ export function BrowseDashboard({
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(0);
   const [error, setError] = useState("");
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [deletionPreview, setDeletionPreview] = useState<BrowseDeletionPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [schedulingDeletion, setSchedulingDeletion] = useState(false);
+  const [previewError, setPreviewError] = useState("");
   const sourceRef = useRef<EventSource | null>(null);
   const activeScanRef = useRef<BrowseScan | null>(null);
   const generationRef = useRef(0);
+  const currentPathRef = useRef(initialPath || "");
+  const refreshVersionRef = useRef(refreshVersion);
 
   useEffect(() => {
     setProtectionStatus("loading");
@@ -102,6 +122,19 @@ export function BrowseDashboard({
         setError(err instanceof Error ? err.message : "Protected-folder status is unavailable.");
       });
   }, [token]);
+
+  useEffect(() => {
+    if (refreshVersionRef.current === refreshVersion) return;
+    refreshVersionRef.current = refreshVersion;
+    void openPath(currentPathRef.current || undefined, true);
+  }, [refreshVersion]);
+
+  useEffect(() => {
+    if (!activeDeletion || !["scheduled", "queued", "running"].includes(activeDeletion.status)) return;
+    setSelectedPaths(new Set());
+    setDeletionPreview(null);
+    setPreviewError("");
+  }, [activeDeletion?.id, activeDeletion?.status]);
 
   useEffect(() => {
     void openPath(initialPath || undefined);
@@ -131,6 +164,9 @@ export function BrowseDashboard({
     setError("");
     setQuery("");
     setPage(0);
+    setSelectedPaths(new Set());
+    setDeletionPreview(null);
+    setPreviewError("");
 
     if (path && !force) {
       const cached = getCached(path);
@@ -140,6 +176,7 @@ export function BrowseDashboard({
         setListing(cached.result);
         setResult(cached.result);
         setPathInput(cached.result.current_path);
+        currentPathRef.current = cached.result.current_path;
         onPathChanged(cached.result.current_path);
         return;
       }
@@ -156,6 +193,7 @@ export function BrowseDashboard({
       }
       setListing(created.listing);
       setPathInput(created.listing.current_path);
+      currentPathRef.current = created.listing.current_path;
       onPathChanged(created.listing.current_path);
       setScan(created.scan);
       activeScanRef.current = created.scan;
@@ -200,6 +238,7 @@ export function BrowseDashboard({
       setListing(next);
       setScan(completed);
       setPathInput(next.current_path);
+      currentPathRef.current = next.current_path;
       onPathChanged(next.current_path);
     } catch (err) {
       if (generation === generationRef.current) {
@@ -230,6 +269,46 @@ export function BrowseDashboard({
     setPage(0);
   }
 
+  function toggleSelected(path: string, selected: boolean) {
+    setSelectedPaths((current) => {
+      const next = new Set(current);
+      if (selected) next.add(path);
+      else next.delete(path);
+      return next;
+    });
+  }
+
+  async function openDeletionReview() {
+    if (!scan || scan.status !== "completed" || selectedPaths.size === 0) return;
+    setPreviewLoading(true);
+    setPreviewError("");
+    try {
+      setDeletionPreview(
+        await previewBrowseDeletion(token, scan.id, Array.from(selectedPaths))
+      );
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : "The deletion preview could not be created.");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function confirmDeletion() {
+    if (!deletionPreview?.can_schedule) return;
+    setSchedulingDeletion(true);
+    setPreviewError("");
+    try {
+      const scheduled = await scheduleBrowseDeletion(token, deletionPreview.id);
+      setDeletionPreview(null);
+      setSelectedPaths(new Set());
+      onDeletionScheduled(scheduled);
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : "Deletion could not be scheduled.");
+    } finally {
+      setSchedulingDeletion(false);
+    }
+  }
+
   const rows = result?.entries || listing?.entries || [];
   const filteredRows = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -255,6 +334,41 @@ export function BrowseDashboard({
   const visibleRows = filteredRows.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
   const busy = scan?.status === "queued" || scan?.status === "running";
   const currentPath = listing?.current_path || pathInput || initialPath || "";
+  const deletionActive = Boolean(
+    activeDeletion && ["scheduled", "queued", "running"].includes(activeDeletion.status)
+  );
+  const pendingPaths = useMemo(() => new Set(
+    deletionActive && activeDeletion
+      ? activeDeletion.items.map((item) => item.path)
+      : []
+  ), [activeDeletion, deletionActive]);
+  const selectedEntries = useMemo(() => (
+    result?.entries.filter((entry) => selectedPaths.has(entry.path)) || []
+  ), [result, selectedPaths]);
+  const selectedAllocatedBytes = selectedEntries.reduce(
+    (total, entry) => total + (entry.allocated_bytes || 0),
+    0
+  );
+  const eligiblePageRows = visibleRows.filter((entry) => (
+    Boolean(result)
+    && entry.deletion_eligible
+    && !deletionActive
+    && !pendingPaths.has(entry.path)
+  ));
+  const allEligiblePageSelected = eligiblePageRows.length > 0
+    && eligiblePageRows.every((entry) => selectedPaths.has(entry.path));
+  const someEligiblePageSelected = eligiblePageRows.some((entry) => selectedPaths.has(entry.path));
+
+  function toggleCurrentPage(selected: boolean) {
+    setSelectedPaths((current) => {
+      const next = new Set(current);
+      for (const entry of eligiblePageRows) {
+        if (selected) next.add(entry.path);
+        else next.delete(entry.path);
+      }
+      return next;
+    });
+  }
 
   return (
     <section className="browse-dashboard">
@@ -262,7 +376,7 @@ export function BrowseDashboard({
         <div>
           <span className="eyebrow">One level at a time</span>
           <h2>Browse storage</h2>
-          <p>Find the folders and files using this Mac, then protect inactive projects before safely offloading them.</p>
+          <p>Inspect storage, protect inactive projects, or permanently delete an exact reviewed selection with a 10-second Undo window.</p>
         </div>
         <div className="button-row">
           <button onClick={() => onOpenHelp("browse")}><Info />How sizing works</button>
@@ -298,12 +412,31 @@ export function BrowseDashboard({
           <label className="checkbox-row compact-check"><input type="checkbox" checked={showHidden} onChange={(event) => { setShowHidden(event.target.checked); setPage(0); }} />Show hidden items</label>
           <span>{filteredRows.length} item{filteredRows.length === 1 ? "" : "s"}</span>
         </div>
+        {selectedEntries.length > 0 && (
+          <div className="browse-deletion-selection" role="status">
+            <div><Trash2 /><span><strong>{selectedEntries.length} selected</strong><small>{formatBytes(selectedAllocatedBytes)} on disk</small></span></div>
+            <div className="button-row">
+              <button onClick={() => setSelectedPaths(new Set())}>Clear selection</button>
+              <button className="danger-button" disabled={previewLoading || deletionActive || scan?.status !== "completed"} onClick={() => void openDeletionReview()}>
+                {previewLoading ? <Loader2 className="spin" /> : <Trash2 />}
+                {previewLoading ? "Reviewing…" : "Delete Permanently"}
+              </button>
+            </div>
+          </div>
+        )}
+        {previewError && !deletionPreview && <div className="alert browse-delete-error" role="alert">{previewError}</div>}
         {result && !showHidden && result.hidden_entry_count > 0 && (
           <div className="hidden-summary"><Info /><span>{result.hidden_entry_count} hidden item{result.hidden_entry_count === 1 ? "" : "s"} {result.hidden_entry_count === 1 ? "uses" : "use"} {formatBytes(result.hidden_allocated_bytes)} on disk ({formatBytes(result.hidden_logical_bytes)} logical) and remain included in the total.</span><button onClick={() => setShowHidden(true)}>Show them</button></div>
         )}
         <div className="table-scroll browse-table-scroll">
           <table>
             <thead><tr>
+              <SelectionHeader
+                checked={allEligiblePageSelected}
+                indeterminate={!allEligiblePageSelected && someEligiblePageSelected}
+                disabled={eligiblePageRows.length === 0}
+                onChange={toggleCurrentPage}
+              />
               <SortableHeader label="Name" active={sortKey === "name"} direction={sortDirection} onClick={() => changeSort("name")} />
               <SortableHeader label="Type" active={sortKey === "kind"} direction={sortDirection} onClick={() => changeSort("kind")} />
               <SortableHeader label="On disk" active={sortKey === "allocated"} direction={sortDirection} onClick={() => changeSort("allocated")} />
@@ -313,14 +446,45 @@ export function BrowseDashboard({
             </tr></thead>
             <tbody>{visibleRows.map((entry) => {
               const relation = protectionRelation(entry.path, protectedFolders);
+              const pending = pendingPaths.has(entry.path);
+              const selectable = Boolean(result) && entry.deletion_eligible && !deletionActive && !pending;
+              const selectionBlocker = pending
+                ? "This item is pending deletion"
+                : deletionActive
+                  ? "Another permanent deletion is already active"
+                  : !result
+                    ? "Wait for sizing to finish"
+                    : entry.deletion_blocker;
+              const rowClasses = [entry.hidden ? "hidden-entry" : "", pending ? "pending-deletion-row" : ""].filter(Boolean).join(" ") || undefined;
               return (
-                <tr key={entry.path} className={entry.hidden ? "hidden-entry" : undefined}>
-                  <td><EntryName entry={entry} onOpen={() => void openPath(entry.path)} /></td>
+                <tr key={entry.path} className={rowClasses}>
+                  <td className="browse-select-cell">
+                    <span className="browse-select-control">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${entry.name} for permanent deletion`}
+                        checked={selectedPaths.has(entry.path)}
+                        disabled={!selectable}
+                        title={selectable ? `Select ${entry.name}` : selectionBlocker || "This item cannot be deleted"}
+                        onChange={(event) => toggleSelected(entry.path, event.target.checked)}
+                      />
+                      {!selectable && !pending && selectionBlocker && (
+                        <span
+                          className="browse-delete-blocker-hint"
+                          role="note"
+                          tabIndex={0}
+                          aria-label={`Cannot delete ${entry.name}: ${selectionBlocker}`}
+                          title={selectionBlocker}
+                        ><ShieldAlert aria-hidden="true" /></span>
+                      )}
+                    </span>
+                  </td>
+                  <td><EntryName entry={entry} pending={pending} onOpen={() => void openPath(entry.path)} /></td>
                   <td><span className={`entry-kind ${entry.kind}`}>{entry.kind}</span></td>
                   <td className="nowrap"><SizeValue entry={entry} field="allocated_bytes" /></td>
                   <td className="nowrap"><SizeValue entry={entry} field="logical_bytes" /></td>
                   <td className="browse-counts">{entry.kind === "directory" && entry.size_state !== "pending" ? <>{entry.file_count.toLocaleString()} files<small>{entry.directory_count.toLocaleString()} folders{entry.skipped_mount_count ? ` · ${entry.skipped_mount_count} mounts skipped` : ""}</small></> : "—"}</td>
-                  <td><ProtectionAction entry={entry} relation={relation} protectionStatus={protectionStatus} currentPath={currentPath} onProtect={onProtect} onOpenProtected={onOpenProtected} /></td>
+                  <td>{pending ? <span className="pending-deletion-label"><Trash2 />Pending deletion</span> : <ProtectionAction entry={entry} relation={relation} protectionStatus={protectionStatus} currentPath={currentPath} onProtect={onProtect} onOpenProtected={onOpenProtected} />}</td>
                 </tr>
               );
             })}</tbody>
@@ -334,6 +498,15 @@ export function BrowseDashboard({
         <details className="panel browse-errors"><summary><AlertTriangle />{result.error_count} item{result.error_count === 1 ? "" : "s"} could not be fully measured</summary><ul>{result.errors.map((message, index) => <li key={`${message}-${index}`}>{message}</li>)}</ul></details>
       )}
       <div className="browse-footnote"><Info /><span>Allocated size uses filesystem block metadata and is not guaranteed reclaimable. APFS clones, hard links, snapshots, compression, permissions, and skipped mounts can make this total differ from macOS storage usage.</span></div>
+      {deletionPreview && (
+        <DeletionReviewModal
+          preview={deletionPreview}
+          error={previewError}
+          scheduling={schedulingDeletion}
+          onClose={() => { setDeletionPreview(null); setPreviewError(""); }}
+          onConfirm={() => void confirmDeletion()}
+        />
+      )}
     </section>
   );
 }
@@ -367,14 +540,27 @@ function BrowseSummary({ result, scan }: { result: BrowseResult | null; scan: Br
   return <section className="browse-summary metric-grid">{metrics.map(([label, value]) => <div className="metric" key={label}><span>{label}</span><strong>{value}</strong>{label === "On disk" && result && <><small>Measured {formatDate(result.measured_at)}{duration ? ` · ${duration}` : ""}</small>{result.allocation_fallback_count > 0 && <small>{result.allocation_fallback_count} allocation fallback{result.allocation_fallback_count === 1 ? "" : "s"}</small>}{result.error_count > 0 && <small>Partial total · {result.error_count} scan error{result.error_count === 1 ? "" : "s"}</small>}</>}</div>)}</section>;
 }
 
+function SelectionHeader({ checked, indeterminate, disabled, onChange }: {
+  checked: boolean;
+  indeterminate: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  const checkboxRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (checkboxRef.current) checkboxRef.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return <th scope="col" className="browse-select-cell"><input ref={checkboxRef} type="checkbox" aria-label="Select eligible items on this page" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /></th>;
+}
+
 function SortableHeader({ label, active, direction, onClick }: { label: string; active: boolean; direction: SortDirection; onClick: () => void }) {
   return <th scope="col" aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}><button className={active ? "sort-button active" : "sort-button"} onClick={onClick}>{label}<ArrowUpDown /></button></th>;
 }
 
-function EntryName({ entry, onOpen }: { entry: BrowseEntry; onOpen: () => void }) {
+function EntryName({ entry, pending, onOpen }: { entry: BrowseEntry; pending: boolean; onOpen: () => void }) {
   const icon = entry.kind === "directory" ? <Folder /> : entry.kind === "file" ? <File /> : entry.kind === "symlink" ? <Link2 /> : <FolderOpen />;
-  const canOpen = entry.kind === "directory" && entry.readable && !entry.mount_boundary;
-  return <div className="browse-entry-name">{icon}{canOpen ? <button title={entry.path} onClick={onOpen}>{entry.name}</button> : <span title={entry.path}>{entry.name}</span>}{entry.hidden && <small>hidden</small>}{entry.mount_boundary && <small>drive boundary</small>}{entry.error_count > 0 && <AlertTriangle aria-label="Partial size" />}</div>;
+  const canOpen = entry.kind === "directory" && entry.readable && !entry.mount_boundary && !pending;
+  return <div className="browse-entry-name">{icon}{canOpen ? <button title={entry.path} onClick={onOpen}>{entry.name}</button> : <span title={entry.path}>{entry.name}</span>}{entry.hidden && <small>hidden</small>}{entry.mount_boundary && <small>drive boundary</small>}{pending && <small className="pending-badge">pending deletion</small>}{entry.error_count > 0 && <AlertTriangle aria-label="Partial size" />}</div>;
 }
 
 function SizeValue({ entry, field }: { entry: BrowseEntry; field: "allocated_bytes" | "logical_bytes" }) {
@@ -401,6 +587,74 @@ function ProtectionAction({ entry, relation, protectionStatus, currentPath, onPr
   if (relation) return <span className="protection-blocked" title={`Protected folders cannot overlap with ${relation.folder.name}`}><ShieldCheck />Overlaps {relation.folder.name}</span>;
   if (!entry.protection_eligible) return <span className="protection-blocked" title={entry.protection_blocker || undefined}>{entry.protection_blocker || "Not protectable"}</span>;
   return <button className="compact-action" onClick={() => onProtect({ name: entry.name, sourcePath: entry.path, returnPath: currentPath })}><ShieldCheck />Protect &amp; offload</button>;
+}
+
+function DeletionReviewModal({ preview, error, scheduling, onClose, onConfirm }: {
+  preview: BrowseDeletionPreview;
+  error: string;
+  scheduling: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !scheduling) onClose();
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex='-1'])"
+      ));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      opener?.focus();
+    };
+  }, [onClose, scheduling]);
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section ref={dialogRef} className="deletion-review-modal" role="dialog" aria-modal="true" aria-labelledby="deletion-review-title" aria-describedby="deletion-review-description">
+        <header className="modal-header">
+          <div><span className="eyebrow">Permanent deletion</span><h2 id="deletion-review-title">Review the exact selection</h2></div>
+          <button ref={closeRef} className="icon-button" disabled={scheduling} onClick={onClose} aria-label="Close deletion review"><X /></button>
+        </header>
+        <div className="deletion-warning" id="deletion-review-description"><ShieldAlert /><div><strong>This does not use Trash.</strong><span>The items remain in place for a 10-second Undo window, then are permanently removed.</span></div></div>
+        <dl className="deletion-review-summary">
+          <div><dt>Items</dt><dd>{preview.selected_count}</dd></div>
+          <div><dt>On disk</dt><dd>{formatBytes(preview.allocated_bytes)}</dd></div>
+          <div><dt>Logical</dt><dd>{formatBytes(preview.logical_bytes)}</dd></div>
+        </dl>
+        <div className="deletion-review-list" aria-label="Items selected for permanent deletion">
+          {preview.items.map((item) => (
+            <article key={item.path}><span className={`entry-kind ${item.kind}`}>{item.kind}</span><div><strong>{item.name}</strong><code>{item.path}</code></div><small>{formatBytes(item.allocated_bytes)}</small></article>
+          ))}
+        </div>
+        {preview.blockers.length > 0 && (
+          <div className="deletion-blockers" role="alert"><strong>Deletion is blocked until the selection is reviewed again.</strong><ul>{preview.blockers.map((blocker) => <li key={`${blocker.path}-${blocker.reason}`}><code>{blocker.path}</code><span>{blocker.reason}</span></li>)}</ul></div>
+        )}
+        {error && <div className="alert" role="alert">{error}</div>}
+        <footer className="modal-actions">
+          <button disabled={scheduling} onClick={onClose}>Cancel</button>
+          <button className="danger-button" disabled={!preview.can_schedule || scheduling} onClick={onConfirm}>{scheduling ? <Loader2 className="spin" /> : <Trash2 />}{scheduling ? "Scheduling…" : "Schedule permanent deletion"}</button>
+        </footer>
+      </section>
+    </div>
+  );
 }
 
 type ProtectionRelation = { kind: "exact" | "inside" | "contains"; folder: ProtectedFolder };

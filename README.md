@@ -27,7 +27,8 @@ CLI.
 - **Rich CLI**: Terminal UI with progress bars, tables, and color-coded output.
 - **Browse by Size**: Inspect one filesystem level at a time with recursively
   calculated folder sizes, direct-file sizes, hidden-content totals, live
-  progress, cancellation, and session caching.
+  progress, cancellation, session caching, and guarded bulk deletion with a
+  server-owned 10-second Undo window.
 - **Guided Web Dashboard**: Task-based Home, Browse, Reports, Protected folders,
   and searchable Help views for the complete local workflow, including live
   progress, persisted report history, and guarded actions.
@@ -122,12 +123,12 @@ used, and available space for the filesystem containing the user's home folder.
 It can be refreshed on demand and links directly to Analyze storage and Archive
 old files. Task cards also lead to Clean caches, Review duplicates, Protect
 folders, Restore files, and Recover a catalog. The searchable **Help** section
-documents each operation, dry runs, exact confirmation phrases, archive
+documents each operation, validated previews, explicit confirmations, archive
 symlinks, protected folder prerequisites, recovery, terminology, and
 troubleshooting.
 
-The read-only **Browse** view opens the user's home folder and lists immediate
-folders and files. Folder rows are sized recursively using allocation metadata;
+The **Browse** view opens the user's home folder and lists immediate folders and
+files. Its sizing pass is metadata-only. Folder rows are sized recursively using allocation metadata;
 the primary **On disk** value uses `st_blocks × 512` when available, while the
 secondary **Logical** value uses file content lengths. Hidden rows can be shown
 or hidden without changing totals. Browse never follows symbolic links or
@@ -138,8 +139,25 @@ Use Home, Computer, or detected-drive shortcuts, breadcrumbs, the parent
 button, or a direct path to navigate. Results are sorted by on-disk size by
 default and can be searched, re-sorted, paged, refreshed, or cancelled. Up to
 32 completed paths are cached for the current frontend session; successful
-clean, archive, protected backup/enrollment, eviction, or restore operations
-clear that cache.
+clean, archive, Browse deletion, protected backup/enrollment, eviction, or
+restore operations clear that cache.
+
+After a Browse scan completes, eligible rows can be selected individually or
+in bulk for the current 50-row page. **Delete Permanently** asks the server to
+validate the exact immediate-child selection and opens a review modal with its
+item and byte totals. The second red confirmation schedules one persistent
+deletion batch. A global toast offers **Undo** for exactly 10 seconds according
+to server time, survives navigation or refresh, and then shows queued/running
+progress while deletion waits for the shared disk-I/O worker. Pending rows stay
+visible but cannot be opened, protected, or selected again.
+
+Deletion is limited to strict descendants of Home or a detected writable
+external-drive root. Home and drive roots, symbolic links, special files,
+mount boundaries, incomplete or unreadable folders, protected-folder overlaps,
+application state, outside paths, and changed filesystem identities are
+blocked. The executor revalidates every top-level item, never follows nested
+symbolic links, never crosses devices, and records each independent result as
+deleted, skipped, or failed. Only one Browse deletion batch can be active.
 
 Eligible local folders offer **Protect & offload**. This only prefills the
 existing Protected folders creation flow with the folder name/path and two
@@ -147,7 +165,8 @@ required copies. Recovery-key confirmation, disk enrollment, backup,
 verification, eviction preview, and exact confirmation remain mandatory.
 Existing exact protected paths open their protected-folder detail; overlapping,
 external, mounted-boundary, symbolic-link, unreadable, and unwritable sources
-are blocked with an explanation. Direct files remain informational only.
+are blocked with an explanation. Direct files cannot be protected, but eligible
+regular files can be included in a reviewed Browse deletion.
 
 The report workflow is:
 
@@ -453,8 +472,9 @@ Default settings live in `src/disk_space_manager/config.py`:
 
 ## Action Log
 
-All delete, archive, protected-folder backup, verification, eviction, restore,
-and enrollment actions are logged to
+All delete previews, schedules, cancellations and results, archive actions,
+and protected-folder backup, verification, eviction, restore, and enrollment
+actions are logged to
 `~/.disk-space-manager-actions.log` with timestamps, paths, sizes, status, and
 dry-run state.
 
@@ -462,8 +482,10 @@ The web dashboard also stores job history, report summaries, actionable
 candidates, and action results in SQLite. It does not store every scanned file,
 which keeps the database bounded for large scans.
 
-Browse scans and results are intentionally ephemeral: at most 32 jobs are kept
-in memory and no Browse rows are written to SQLite or report history.
+Browse scans and listings remain ephemeral: at most 32 jobs are kept in memory
+and no scan rows are written to report history. Scheduled Browse deletion
+batches and per-item fingerprints/results are persisted in SQLite so countdown,
+queued, or interrupted work can recover after a server restart.
 
 Protected-folder operation history in
 `~/.disk-space-manager-protected.sqlite3` includes duration, last progress,
@@ -487,6 +509,7 @@ src/disk_space_manager/executor.py        File operations and logging
 src/disk_space_manager/protection/        Catalog, Keychain, Restic, volumes, safety
 src/disk_space_manager/drive_detector.py  External drive auto-detection
 src/disk_space_manager/web/               FastAPI app, services, jobs, SQLite
+src/disk_space_manager/web/deletion_jobs.py Browse deletion policy and scheduler
 src/disk_space_manager/web/static/        Packaged React production build
 frontend/                                 React/Vite frontend source
 src/disk_space_manager/config.py          Configuration constants
@@ -508,8 +531,8 @@ agent skills live in `.agents/skills/`, and shared command prompts live in
 - External drives must be mounted and writable when using `--external-path` or
   auto-detection.
 - Scanning speed is bounded by filesystem I/O.
-- The web backend serializes report, Browse, and protected-folder disk work
-  through one shared heavy-I/O queue.
+- The web backend serializes report, Browse sizing/deletion, and
+  protected-folder disk work through one shared heavy-I/O queue.
 - The web token model is suitable for local or carefully controlled server use;
   it is not a multi-user account system.
 - Report jobs cannot currently be cancelled once started; Browse sizing and

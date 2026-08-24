@@ -5,7 +5,7 @@ import json
 import platform as platform_module
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +23,14 @@ from disk_space_manager.protection.service import ProtectionError, ProtectionSer
 
 from .io_queue import HeavyIOQueue
 from .browse_jobs import BrowseJobManager, BrowseJobNotFound, BrowseResultNotReady
+from .deletion_jobs import (
+    BrowseDeletionConflict,
+    BrowseDeletionManager,
+    BrowseDeletionNotFound,
+    BrowseDeletionPolicy,
+    DELETE_DELAY_SECONDS,
+    PREVIEW_TTL_SECONDS,
+)
 from .jobs import JobManager
 from .protection_jobs import ProtectionOperationManager
 from .repository import DEFAULT_DB_PATH, WebRepository
@@ -31,6 +39,11 @@ from .schemas import (
     ActionResponse,
     ActionsListResponse,
     ArchiveTargetsResponse,
+    ActiveBrowseDeletionResponse,
+    BrowseDeletionPreviewRequest,
+    BrowseDeletionPreviewResponse,
+    BrowseDeletionResponse,
+    BrowseDeletionScheduleRequest,
     BrowseJobResponse,
     BrowseResultResponse,
     BrowseScanCreateRequest,
@@ -75,6 +88,12 @@ def create_app(
     dev_origin: Optional[str] = None,
     protection_repository: Optional[ProtectionRepository] = None,
     protection_service: Optional[ProtectionService] = None,
+    filesystem_roots_provider: Optional[
+        Callable[[], List[Dict[str, Any]]]
+    ] = None,
+    browse_default_path: Optional[Path] = None,
+    browse_delete_delay_seconds: float = DELETE_DELAY_SECONDS,
+    browse_delete_preview_ttl_seconds: float = PREVIEW_TTL_SECONDS,
 ) -> FastAPI:
     """Create the FastAPI app with injected persistence and token config."""
     repo = repository or WebRepository(DEFAULT_DB_PATH)
@@ -91,9 +110,29 @@ def create_app(
     else:
         protection_repo = ProtectionRepository(DEFAULT_PROTECTION_DB_PATH)
     protection = protection_service or ProtectionService(repository=protection_repo)
+    roots_provider = filesystem_roots_provider or filesystem_roots
     io_queue = HeavyIOQueue()
     job_manager = JobManager(repo, io_queue)
-    browse_manager = BrowseJobManager(io_queue, filesystem_roots)
+    deletion_policy = BrowseDeletionPolicy(
+        protection_repo,
+        state_paths=(repo.db_path, protection_repo.db_path),
+    )
+    browse_manager = BrowseJobManager(
+        io_queue,
+        roots_provider,
+        default_path=browse_default_path,
+        deletion_annotator=deletion_policy.annotate_entries,
+    )
+    deletion_manager = BrowseDeletionManager(
+        repo,
+        browse_manager,
+        protection_repo,
+        io_queue,
+        roots_provider,
+        deletion_policy,
+        delete_delay_seconds=browse_delete_delay_seconds,
+        preview_ttl_seconds=browse_delete_preview_ttl_seconds,
+    )
     protection_manager = ProtectionOperationManager(
         protection_repo, protection, io_queue
     )
@@ -102,13 +141,18 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        yield
-        io_queue.shutdown()
+        deletion_manager.start()
+        try:
+            yield
+        finally:
+            deletion_manager.shutdown()
+            io_queue.shutdown()
 
     app = FastAPI(title="Disk Space Manager Web", lifespan=lifespan)
     app.state.repository = repo
     app.state.job_manager = job_manager
     app.state.browse_manager = browse_manager
+    app.state.deletion_manager = deletion_manager
     app.state.protection_repository = protection_repo
     app.state.protection_service = protection
     app.state.protection_manager = protection_manager
@@ -143,7 +187,9 @@ def create_app(
         path: Optional[str] = None, show_hidden: bool = False
     ) -> dict:
         try:
-            return browse_directories(path, show_hidden=show_hidden)
+            listing = browse_directories(path, show_hidden=show_hidden)
+            listing["roots"] = roots_provider()
+            return listing
         except ServiceError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
@@ -212,6 +258,87 @@ def create_app(
             return browse_manager.cancel(scan_id)
         except BrowseJobNotFound:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Browse scan not found")
+
+    @app.post(
+        "/api/browse/deletion-previews",
+        response_model=BrowseDeletionPreviewResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def create_browse_deletion_preview(
+        request: BrowseDeletionPreviewRequest,
+    ) -> dict:
+        try:
+            return deletion_manager.create_preview(request.scan_id, request.paths)
+        except BrowseJobNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Browse scan not found",
+            )
+        except BrowseResultNotReady as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            )
+        except BrowseDeletionConflict as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            )
+
+    @app.post(
+        "/api/browse/deletions",
+        response_model=BrowseDeletionResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def schedule_browse_deletion(
+        request: BrowseDeletionScheduleRequest,
+    ) -> dict:
+        try:
+            return deletion_manager.schedule(request.preview_id)
+        except BrowseDeletionNotFound as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            )
+        except BrowseDeletionConflict as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            )
+
+    @app.get(
+        "/api/browse/deletions/active",
+        response_model=ActiveBrowseDeletionResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def active_browse_deletion() -> dict:
+        return {"deletion": deletion_manager.active()}
+
+    @app.get(
+        "/api/browse/deletions/{deletion_id}",
+        response_model=BrowseDeletionResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def get_browse_deletion(deletion_id: str) -> dict:
+        try:
+            return deletion_manager.get(deletion_id)
+        except BrowseDeletionNotFound as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            )
+
+    @app.post(
+        "/api/browse/deletions/{deletion_id}/undo",
+        response_model=BrowseDeletionResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def undo_browse_deletion(deletion_id: str) -> dict:
+        try:
+            return deletion_manager.undo(deletion_id)
+        except BrowseDeletionNotFound as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            )
+        except BrowseDeletionConflict as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            )
 
     @app.get(
         "/api/archive-targets",

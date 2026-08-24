@@ -2,6 +2,8 @@ import type {
   ActionResult,
   AppConfig,
   ArchiveTarget,
+  BrowseDeletion,
+  BrowseDeletionPreview,
   BrowseResult,
   BrowseScan,
   BrowseScanCreated,
@@ -137,6 +139,54 @@ export function openBrowseEvents(
     if (["completed", "failed", "cancelled"].includes(scan.status)) source.close();
   });
   return source;
+}
+
+export function previewBrowseDeletion(
+  token: string,
+  scanId: string,
+  paths: string[]
+): Promise<BrowseDeletionPreview> {
+  return apiRequest<BrowseDeletionPreview>("/api/browse/deletion-previews", token, {
+    method: "POST",
+    body: JSON.stringify({ scan_id: scanId, paths })
+  });
+}
+
+export function scheduleBrowseDeletion(
+  token: string,
+  previewId: string
+): Promise<BrowseDeletion> {
+  return apiRequest<BrowseDeletion>("/api/browse/deletions", token, {
+    method: "POST",
+    body: JSON.stringify({ preview_id: previewId })
+  });
+}
+
+export function getActiveBrowseDeletion(
+  token: string
+): Promise<{ deletion: BrowseDeletion | null }> {
+  return apiRequest<{ deletion: BrowseDeletion | null }>(
+    "/api/browse/deletions/active",
+    token
+  );
+}
+
+export function getBrowseDeletion(
+  token: string,
+  deletionId: string
+): Promise<BrowseDeletion> {
+  return apiRequest<BrowseDeletion>(`/api/browse/deletions/${deletionId}`, token);
+}
+
+export function undoBrowseDeletion(
+  token: string,
+  deletionId: string
+): Promise<BrowseDeletion> {
+  return apiRequest<BrowseDeletion>(
+    `/api/browse/deletions/${deletionId}/undo`,
+    token,
+    { method: "POST" }
+  );
 }
 
 export function listArchiveTargets(

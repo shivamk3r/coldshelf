@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 
 import { BrowseDashboard, clearBrowseCache } from "./BrowseDashboard";
 import * as api from "./api";
-import type { BrowseEntry, BrowseResult, BrowseScan } from "./types";
+import type { BrowseDeletion, BrowseDeletionPreview, BrowseEntry, BrowseResult, BrowseScan } from "./types";
 
 vi.mock("./api", async () => {
   const actual = await vi.importActual<typeof import("./api")>("./api");
@@ -13,7 +13,9 @@ vi.mock("./api", async () => {
     getBrowseResult: vi.fn(),
     cancelBrowseScan: vi.fn(),
     openBrowseEvents: vi.fn(),
-    listProtectedFolders: vi.fn()
+    listProtectedFolders: vi.fn(),
+    previewBrowseDeletion: vi.fn(),
+    scheduleBrowseDeletion: vi.fn()
   };
 });
 
@@ -52,6 +54,7 @@ function entry(overrides: Partial<BrowseEntry>): BrowseEntry {
     skipped_mount_count: 0,
     size_state: "complete",
     protection_eligible: true,
+    deletion_eligible: true,
     ...overrides
   };
 }
@@ -97,6 +100,35 @@ const result: BrowseResult = {
   measured_at: "2026-08-24T12:00:01Z"
 };
 
+const deletionPreview: BrowseDeletionPreview = {
+  id: "preview-1",
+  expires_at: "2026-08-24T12:05:00Z",
+  current_path: "/Users/demo",
+  selected_count: 2,
+  logical_bytes: 1020,
+  allocated_bytes: 6144,
+  can_schedule: true,
+  items: [
+    { path: "/Users/demo/Project", name: "Project", kind: "directory", logical_bytes: 1000, allocated_bytes: 2048, status: "pending" },
+    { path: "/Users/demo/notes.txt", name: "notes.txt", kind: "file", logical_bytes: 20, allocated_bytes: 4096, status: "pending" }
+  ],
+  blockers: []
+};
+
+const scheduledDeletion: BrowseDeletion = {
+  id: "deletion-1",
+  status: "scheduled",
+  current_path: "/Users/demo",
+  selected_count: 2,
+  logical_bytes: 1020,
+  allocated_bytes: 6144,
+  created_at: "2026-08-24T12:00:00Z",
+  delete_after: "2026-08-24T12:00:10Z",
+  server_time: "2026-08-24T12:00:00Z",
+  undo_available: true,
+  items: deletionPreview.items
+};
+
 beforeEach(() => {
   clearBrowseCache();
   vi.clearAllMocks();
@@ -111,6 +143,143 @@ beforeEach(() => {
     }
   });
   vi.mocked(api.getBrowseResult).mockResolvedValue(result);
+  vi.mocked(api.previewBrowseDeletion).mockResolvedValue(deletionPreview);
+  vi.mocked(api.scheduleBrowseDeletion).mockResolvedValue(scheduledDeletion);
+});
+
+test("selects the current page, reviews the exact items, and schedules deletion", async () => {
+  const onDeletionScheduled = vi.fn();
+  render(
+    <BrowseDashboard
+      token="secret"
+      onPathChanged={vi.fn()}
+      onProtect={vi.fn()}
+      onOpenProtected={vi.fn()}
+      onOpenHelp={vi.fn()}
+      onDeletionScheduled={onDeletionScheduled}
+    />
+  );
+
+  await screen.findByText("10 KB");
+  await userEvent.click(screen.getByRole("checkbox", { name: "Select eligible items on this page" }));
+  expect(screen.getByText("2 selected")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Delete Permanently" }));
+
+  await waitFor(() => expect(api.previewBrowseDeletion).toHaveBeenCalledTimes(1));
+  const [token, scanId, paths] = vi.mocked(api.previewBrowseDeletion).mock.calls[0];
+  expect(token).toBe("secret");
+  expect(scanId).toBe(scan.id);
+  expect(paths).toHaveLength(2);
+  expect(paths).toEqual(expect.arrayContaining([
+    "/Users/demo/Project",
+    "/Users/demo/notes.txt"
+  ]));
+  expect(screen.getByRole("dialog", { name: "Review the exact selection" })).toBeInTheDocument();
+  expect(screen.getByText("This does not use Trash.")).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("button", { name: "Schedule permanent deletion" }));
+  expect(api.scheduleBrowseDeletion).toHaveBeenCalledWith("secret", deletionPreview.id);
+  expect(onDeletionScheduled).toHaveBeenCalledWith(scheduledDeletion);
+});
+
+test("limits bulk selection to the current 50-row page and resets it on refresh", async () => {
+  const manyEntries = Array.from({ length: 51 }, (_, index) => entry({
+    name: `delete-${String(index).padStart(3, "0")}.txt`,
+    path: `/Users/demo/delete-${String(index).padStart(3, "0")}.txt`,
+    kind: "file",
+    file_count: 1,
+    directory_count: 0,
+    protection_eligible: false,
+    protection_blocker: "Only folders can be protected"
+  }));
+  const manyResult = {
+    ...result,
+    entries: manyEntries,
+    hidden_entry_count: 0,
+    hidden_logical_bytes: 0,
+    hidden_allocated_bytes: 0
+  };
+  vi.mocked(api.createBrowseScan).mockResolvedValue({
+    scan,
+    listing: {
+      current_path: manyResult.current_path,
+      parent_path: manyResult.parent_path,
+      roots: manyResult.roots,
+      entries: manyEntries
+    }
+  });
+  vi.mocked(api.getBrowseResult).mockResolvedValue(manyResult);
+
+  render(
+    <BrowseDashboard
+      token="secret"
+      onPathChanged={vi.fn()}
+      onProtect={vi.fn()}
+      onOpenProtected={vi.fn()}
+      onOpenHelp={vi.fn()}
+    />
+  );
+
+  await screen.findByText("Showing 1–50 of 51");
+  await userEvent.click(screen.getByRole("checkbox", { name: "Select eligible items on this page" }));
+  expect(screen.getByText("50 selected")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  await userEvent.click(screen.getByRole("checkbox", { name: "Select eligible items on this page" }));
+  expect(screen.getByText("51 selected")).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(screen.queryByText("51 selected")).not.toBeInTheDocument());
+});
+
+test("shows server blockers and API errors without enabling confirmation", async () => {
+  vi.mocked(api.previewBrowseDeletion).mockResolvedValueOnce({
+    ...deletionPreview,
+    selected_count: 0,
+    logical_bytes: 0,
+    allocated_bytes: 0,
+    can_schedule: false,
+    items: [],
+    blockers: [{ path: "/Users/demo/notes.txt", reason: "The item changed after it was scanned" }]
+  });
+  render(
+    <BrowseDashboard
+      token="secret"
+      onPathChanged={vi.fn()}
+      onProtect={vi.fn()}
+      onOpenProtected={vi.fn()}
+      onOpenHelp={vi.fn()}
+    />
+  );
+
+  await screen.findByText("10 KB");
+  await userEvent.click(screen.getByRole("checkbox", { name: "Select notes.txt for permanent deletion" }));
+  await userEvent.click(screen.getByRole("button", { name: "Delete Permanently" }));
+  expect(await screen.findByText("The item changed after it was scanned")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Schedule permanent deletion" })).toBeDisabled();
+  await userEvent.click(screen.getByRole("button", { name: "Close deletion review" }));
+
+  vi.mocked(api.previewBrowseDeletion).mockRejectedValueOnce(new Error("Preview expired; refresh Browse"));
+  await userEvent.click(screen.getByRole("button", { name: "Delete Permanently" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Preview expired; refresh Browse");
+});
+
+test("keeps scheduled rows visible but disables their actions", async () => {
+  render(
+    <BrowseDashboard
+      token="secret"
+      onPathChanged={vi.fn()}
+      onProtect={vi.fn()}
+      onOpenProtected={vi.fn()}
+      onOpenHelp={vi.fn()}
+      activeDeletion={{ ...scheduledDeletion, selected_count: 1, items: [scheduledDeletion.items[0]] }}
+    />
+  );
+
+  expect(await screen.findByText("10 KB")).toBeInTheDocument();
+  expect(screen.getAllByText("pending deletion").length).toBeGreaterThan(0);
+  expect(screen.getByRole("checkbox", { name: "Select Project for permanent deletion" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Project" })).not.toBeInTheDocument();
+  expect(screen.getByText("notes.txt")).toBeInTheDocument();
 });
 
 test("shows one-level sizes, keeps hidden bytes in totals, and starts protection", async () => {

@@ -22,6 +22,7 @@ import {
 import { ApiError, clearToken, getConfig, getStorageSummary, initialToken, saveToken } from "./api";
 import { BrowseDashboard, clearBrowseCache } from "./BrowseDashboard";
 import type { BrowseProtectionSeed } from "./BrowseDashboard";
+import { BrowseDeletionToast, useBrowseDeletionController } from "./BrowseDeletionToast";
 import { HelpCenter } from "./HelpCenter";
 import { ProtectedFolders } from "./ProtectedFolders";
 import { ReportsDashboard } from "./ReportsDashboard";
@@ -49,6 +50,15 @@ export function App() {
   const [jobsCount, setJobsCount] = useState(0);
   const [checkingToken, setCheckingToken] = useState(Boolean(token));
   const [authError, setAuthError] = useState("");
+  const [browseRefreshVersion, setBrowseRefreshVersion] = useState(0);
+  const onDeletionFilesystemChanged = useCallback(() => {
+    clearBrowseCache();
+    setBrowseRefreshVersion((version) => version + 1);
+  }, []);
+  const deletionController = useBrowseDeletionController(
+    token,
+    onDeletionFilesystemChanged
+  );
 
   useEffect(() => {
     if (!token) {
@@ -193,6 +203,9 @@ export function App() {
             onProtect={(seed) => openProtection("create", { seed, returnPath: seed.returnPath })}
             onOpenProtected={(folderId, returnPath) => openProtection("manage", { folderId, returnPath })}
             onOpenHelp={openHelp}
+            activeDeletion={deletionController.deletion}
+            refreshVersion={browseRefreshVersion}
+            onDeletionScheduled={deletionController.onScheduled}
           />
         )}
         {view === "protection" && (
@@ -216,6 +229,13 @@ export function App() {
           />
         )}
       </section>
+      <BrowseDeletionToast
+        deletion={deletionController.deletion}
+        error={deletionController.error}
+        undoing={deletionController.undoing}
+        onUndo={() => void deletionController.undo()}
+        onDismiss={deletionController.dismiss}
+      />
     </main>
   );
 }
@@ -266,8 +286,8 @@ function HomeDashboard({ token, jobsCount, openReports, openProtection, openHelp
         <div className="safety-card">
           <ShieldCheck />
           <strong>Safety is built in</strong>
-          <span>Dry-run previews</span>
-          <span>Exact confirmation phrases</span>
+          <span>Server-validated previews</span>
+          <span>Explicit confirmations</span>
           <span>Persistent action logs</span>
         </div>
       </header>

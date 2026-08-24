@@ -88,6 +88,8 @@ prompts. The root `main.py` is only a checkout compatibility shim.
 - `jobs.py` queues long-running report jobs on a single background worker.
 - `browse_jobs.py` owns cancellable, bounded, in-memory Browse jobs on that same
   serialized heavy-I/O queue.
+- `deletion_jobs.py` owns Browse deletion eligibility, one-use previews, the
+  persistent delayed scheduler, restart recovery, and execution revalidation.
 - `services.py` translates web requests into scanner/analyzer/duplicate/action
   operations.
 - `repository.py` persists web state in SQLite.
@@ -100,8 +102,9 @@ Python web command can serve the UI without starting Vite.
 The frontend uses five top-level tasks: Home, Browse, Reports, Protected
 folders, and Help. Home includes an operating-system capacity snapshot for the
 primary filesystem and direct Analyze and Archive entry points. Browse sizes
-one level at a time, retains completed paths in a 32-entry session LRU, and can
-prefill the existing protected-folder lifecycle for an eligible folder. Reports
+one level at a time, retains completed paths in a 32-entry session LRU, can
+prefill the existing protected-folder lifecycle, and can submit an exact
+server-validated permanent-deletion batch with a global Undo countdown. Reports
 divide completed results into Overview, Large items, Duplicates, Clean,
 Archive, and Activity tabs. Server-side folder browsing reveals only directory
 metadata to the authenticated process; it does not upload or read file contents.
@@ -231,6 +234,19 @@ Browse data flow:
    descendant counts, sizing states, fallback counts, and capped errors.
 5. Browse keeps at most 32 jobs in backend memory and 32 canonical completed
    paths in the frontend session cache; neither is persisted as report history.
+6. React selects only eligible rows from the completed scan. The header bulk
+   action is scoped to the current 50-row page, while individual selection may
+   continue across pages within that scan.
+7. A five-minute, one-use preview revalidates exact immediate-child paths,
+   safety roots, protected/application-state overlaps, scan completeness, and
+   filesystem fingerprints. The review modal cannot schedule a blocked batch.
+8. The second red confirmation persists one global batch and its items with a
+   server deadline 10 seconds later. A polling toast survives navigation or
+   refresh; an atomic transition lets either Undo or the deadline scheduler win.
+9. At expiry the batch enters the shared heavy-I/O queue. Each top-level item is
+   revalidated and processed independently without following symbolic links or
+   crossing filesystem devices. Terminal completion clears all Browse caches
+   and refreshes the open listing.
 
 ## Safety Model
 
@@ -246,6 +262,21 @@ user files.
   job, and explicit candidate IDs from that job.
 - Web real actions require the action-specific confirmation phrase. Web action
   requests default to dry-run.
+- Browse permanent deletion instead requires a completed scan, a one-use
+  server preview, a second explicit red confirmation, and a backend-owned
+  10-second Undo deadline. It does not use Trash or quarantine.
+- Browse deletion accepts only exact immediate children strictly below Home or
+  a detected writable external-drive root. Roots, outside paths, symbolic
+  links, special files, mount boundaries, partial/unreadable folders,
+  protected-folder overlaps in either direction, and active application state
+  are blocked.
+- Device, inode, type/mode, size, modification time, and change time are
+  captured and revalidated at scheduling and execution. Replaced or materially
+  changed top-level items are skipped rather than deleted.
+- Browse directory deletion validates a whole one-device tree before removal,
+  unlinks nested symbolic links without following them, and records per-item
+  deleted, skipped, or failed outcomes. Scheduled/queued/running state recovers
+  from SQLite after restart.
 - Dry-run executor behavior does not delete, move, create archive output, or
   create symlinks, but it does calculate result counts and log intended actions
   as dry-run entries.
@@ -263,8 +294,8 @@ user files.
   backup, verification, preview, copy-count, or exact-confirmation gates.
 
 Automated validation must use temporary directories or intentionally small test
-paths. It must not run destructive `clean` or `archive` operations against a
-real home directory, system path, or external drive.
+paths. It must not run destructive `clean`, `archive`, or Browse deletion
+operations against a real home directory, system path, or external drive.
 
 ## Performance Design
 
@@ -281,8 +312,9 @@ The scanner is designed for large filesystem trees. Key choices are:
   communication.
 - Duplicate detection hashes only same-size exact candidates and caps
   near-duplicate fingerprinting by media type to protect report runtime.
-- The web backend serializes heavy report, Browse, and protected-folder work to
-  avoid multiple broad operations competing for the same disk.
+- The web backend serializes heavy report, Browse sizing/deletion, and
+  protected-folder work to avoid multiple broad operations competing for the
+  same disk.
 
 The profiling workflow in `scripts/profile_report_generation.py` owns
 `downloads/benchmark`, can generate large sparse benchmark datasets, profiles

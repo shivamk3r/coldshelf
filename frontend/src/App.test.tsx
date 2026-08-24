@@ -17,6 +17,7 @@ vi.mock("./api", async () => {
     }),
     getStorageSummary: vi.fn(),
     listJobs: vi.fn().mockResolvedValue({ jobs: [] }),
+    getActiveBrowseDeletion: vi.fn().mockResolvedValue({ deletion: null }),
     createJob: vi.fn().mockResolvedValue({
       id: "job-1",
       status: "queued",
