@@ -344,7 +344,10 @@ This command is read-only.
 3. In normal mode, create the FastAPI app and serve packaged React assets.
 4. In `--dev` mode, start Vite with backend URL and token environment values,
    enable CORS for the Vite origin, and run FastAPI.
-5. Bind to `--host` and `--port`, defaulting to `127.0.0.1:8765`.
+5. Bind FastAPI to `--host` and `--port`, defaulting to
+   `127.0.0.1:38765`. Normal mode serves the API and built frontend from this
+   one listener; development mode additionally starts Vite on
+   `--frontend-port`, defaulting to `38766`.
 6. Print the correct production or Vite URL and, unless `--no-open` is used,
    open it after Uvicorn reports readiness. Wildcard bind hosts use
    `127.0.0.1` in the browser URL.

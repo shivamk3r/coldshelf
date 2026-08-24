@@ -22,11 +22,17 @@ from .repository import DEFAULT_DB_PATH, WebRepository
 from .security import get_or_create_token
 
 
+DEFAULT_BACKEND_PORT = 38765
+DEFAULT_FRONTEND_PORT = 38766
+
+
 @click.command()
 @click.option("--host", default="127.0.0.1", show_default=True)
-@click.option("--port", default=8765, show_default=True, type=int)
+@click.option("--port", default=DEFAULT_BACKEND_PORT, show_default=True, type=int)
 @click.option("--dev", is_flag=True, help="Run FastAPI with the Vite dev frontend.")
-@click.option("--frontend-port", default=5173, show_default=True, type=int)
+@click.option(
+    "--frontend-port", default=DEFAULT_FRONTEND_PORT, show_default=True, type=int
+)
 @click.option("--db-path", type=click.Path(path_type=Path), default=DEFAULT_DB_PATH)
 @click.option("--token", default=None, help="API token. Defaults to env or local token file.")
 @click.option(
@@ -116,7 +122,7 @@ def _dashboard_url(
     token: str,
     *,
     dev: bool = False,
-    frontend_port: int = 5173,
+    frontend_port: int = DEFAULT_FRONTEND_PORT,
 ) -> str:
     """Build a usable local URL even when Uvicorn binds a wildcard host."""
     encoded_token = quote(token, safe="")

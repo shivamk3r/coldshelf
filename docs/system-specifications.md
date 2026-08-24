@@ -132,9 +132,9 @@ Behavior:
 Options:
 
 - `--host TEXT`: bind host; defaults to `127.0.0.1`.
-- `--port INTEGER`: bind port; defaults to `8765`.
+- `--port INTEGER`: FastAPI bind port; defaults to `38765`.
 - `--dev`: start FastAPI with a Vite development frontend.
-- `--frontend-port INTEGER`: Vite port in `--dev`; defaults to `5173`.
+- `--frontend-port INTEGER`: Vite port in `--dev`; defaults to `38766`.
 - `--db-path PATH`: SQLite database path; defaults to
   `~/.disk-space-manager-web.sqlite3`.
 - `--token TEXT`: API token override.
@@ -156,9 +156,11 @@ Token behavior:
 Runtime behavior:
 
 - Normal mode serves packaged React assets from
-  `src/disk_space_manager/web/static/`.
+  `src/disk_space_manager/web/static/`, so the frontend and API share the
+  single FastAPI port.
 - `--dev` starts `npm run dev` in `frontend/`, passes the backend URL and token
-  through Vite environment variables, and enables CORS for the Vite origin.
+  through Vite environment variables, and enables CORS for the separate Vite
+  origin.
 - Binding to a non-localhost host is explicit and should be treated as network
   mode.
 - The backend uses a single background worker for heavy report jobs.

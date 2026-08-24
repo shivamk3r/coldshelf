@@ -86,11 +86,15 @@ frontend from the Python package.
 Useful web server options:
 
 ```bash
-uv run disk-space-manager-web --host 127.0.0.1 --port 8765
+uv run disk-space-manager-web --host 127.0.0.1 --port 38765
 uv run disk-space-manager-web --db-path ~/.disk-space-manager-web.sqlite3
 uv run disk-space-manager-web --token <token>
 uv run disk-space-manager-web --no-open
 ```
+
+Packaged mode uses only port `38765` by default: FastAPI serves both the API
+and the built React frontend from the same listener. Use `--port` to override
+it if that port is unavailable.
 
 If no token is provided, the server reads `DISK_SPACE_MANAGER_WEB_TOKEN`, then
 falls back to `~/.disk-space-manager-web-token`, creating that file when
@@ -104,8 +108,9 @@ For frontend/backend development, run:
 uv run disk-space-manager-web --dev
 ```
 
-Development mode starts FastAPI and the Vite frontend together, using
-`--frontend-port 5173` by default. Use `--host 0.0.0.0` only when you
+Development mode starts FastAPI and the Vite frontend together, using backend
+port `38765` and `--frontend-port 38766` by default. Both remain configurable
+with `--port` and `--frontend-port`. Use `--host 0.0.0.0` only when you
 intentionally want network access, and keep the token private.
 
 The dashboard opens on **Home**, where task cards lead to Analyze storage,
