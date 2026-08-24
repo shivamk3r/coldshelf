@@ -1,4 +1,4 @@
-import { clearToken, initialToken, openJobEvents } from "./api";
+import { clearToken, getStorageSummary, initialToken, openJobEvents } from "./api";
 
 
 test("captures the startup token and immediately removes it from the visible URL", () => {
@@ -13,6 +13,25 @@ test("disconnect clears the persisted token", () => {
   localStorage.setItem("dsm-token", "private-value");
   clearToken();
   expect(localStorage.getItem("dsm-token")).toBeNull();
+});
+
+
+test("requests the authenticated primary storage summary", async () => {
+  const payload = { total_bytes: 1000, used_bytes: 600, available_bytes: 400 };
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: vi.fn().mockResolvedValue(payload)
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  await expect(getStorageSummary("secret")).resolves.toEqual(payload);
+  expect(fetchMock).toHaveBeenCalledWith("/api/storage", {
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer secret"
+    }
+  });
+  vi.unstubAllGlobals();
 });
 
 

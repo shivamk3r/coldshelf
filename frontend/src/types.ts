@@ -129,6 +129,12 @@ export interface AppConfig {
   near_duplicate_detection: boolean;
 }
 
+export interface StorageSummary {
+  total_bytes: number;
+  used_bytes: number;
+  available_bytes: number;
+}
+
 export interface DirectoryLocation {
   name: string;
   path: string;

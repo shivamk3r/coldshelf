@@ -11,7 +11,8 @@ import type {
   ProtectedFolderDetail,
   ProtectionPreflight,
   ProtectionOperation,
-  Report
+  Report,
+  StorageSummary
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_DSM_API_BASE || "";
@@ -78,6 +79,10 @@ export async function apiRequest<T>(
 
 export function getConfig(token: string): Promise<AppConfig> {
   return apiRequest<AppConfig>("/api/config", token);
+}
+
+export function getStorageSummary(token: string): Promise<StorageSummary> {
+  return apiRequest<StorageSummary>("/api/storage", token);
 }
 
 export function browseDirectories(

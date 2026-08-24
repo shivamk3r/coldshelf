@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Archive,
   BarChart3,
@@ -12,16 +12,18 @@ import {
   KeyRound,
   Loader2,
   LogOut,
+  RefreshCw,
   RotateCcw,
   ShieldCheck,
   Trash2
 } from "lucide-react";
 
-import { ApiError, clearToken, getConfig, initialToken, saveToken } from "./api";
+import { ApiError, clearToken, getConfig, getStorageSummary, initialToken, saveToken } from "./api";
 import { HelpCenter } from "./HelpCenter";
 import { ProtectedFolders } from "./ProtectedFolders";
 import { ReportsDashboard } from "./ReportsDashboard";
 import type { ReportIntent } from "./ReportsDashboard";
+import type { StorageSummary } from "./types";
 
 type View = "home" | "reports" | "protection" | "help";
 export type ProtectionIntent = "manage" | "create" | "restore" | "recover";
@@ -148,6 +150,7 @@ export function App() {
       <section className="content">
         {view === "home" && (
           <HomeDashboard
+            token={token}
             jobsCount={jobsCount}
             openReports={openReports}
             openProtection={openProtection}
@@ -177,12 +180,37 @@ export function App() {
   );
 }
 
-function HomeDashboard({ jobsCount, openReports, openProtection, openHelp }: {
+function HomeDashboard({ token, jobsCount, openReports, openProtection, openHelp }: {
+  token: string;
   jobsCount: number;
   openReports: (intent: ReportIntent) => void;
   openProtection: (intent: ProtectionIntent) => void;
   openHelp: (article?: string) => void;
 }) {
+  const [storage, setStorage] = useState<StorageSummary | null>(null);
+  const [storageLoading, setStorageLoading] = useState(true);
+  const [storageError, setStorageError] = useState("");
+
+  const loadStorage = useCallback(async () => {
+    setStorageLoading(true);
+    setStorageError("");
+    try {
+      setStorage(await getStorageSummary(token));
+    } catch (err) {
+      setStorageError(err instanceof Error ? err.message : "Storage information is temporarily unavailable.");
+    } finally {
+      setStorageLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void loadStorage();
+  }, [loadStorage]);
+
+  const usedPercent = storage && storage.total_bytes > 0
+    ? Math.min(100, Math.max(0, (storage.used_bytes / storage.total_bytes) * 100))
+    : 0;
+
   return (
     <section className="home-dashboard">
       <header className="hero-panel">
@@ -203,6 +231,67 @@ function HomeDashboard({ jobsCount, openReports, openProtection, openHelp }: {
           <span>Persistent action logs</span>
         </div>
       </header>
+
+      <section className="storage-panel panel" aria-labelledby="primary-storage-title">
+        <header className="storage-panel-header">
+          <div className="storage-title">
+            <span className="storage-icon"><HardDrive aria-hidden="true" /></span>
+            <div><span className="eyebrow">This computer</span><h3 id="primary-storage-title">Primary storage</h3></div>
+          </div>
+          <button
+            type="button"
+            disabled={storageLoading}
+            aria-label={storageError ? "Retry storage summary" : "Refresh storage summary"}
+            onClick={() => void loadStorage()}
+          >
+            <RefreshCw className={storageLoading ? "spin" : undefined} />
+            {storageLoading ? "Refreshing…" : storageError ? "Retry" : "Refresh"}
+          </button>
+        </header>
+
+        {storageLoading ? (
+          <div className="storage-state" role="status"><Loader2 className="spin" /><span>Reading primary storage…</span></div>
+        ) : storageError ? (
+          <div className="storage-state storage-error" role="alert">
+            <strong>Storage information is unavailable.</strong>
+            <span>{storageError}</span>
+          </div>
+        ) : storage ? (
+          <div className="storage-content">
+            <div className="storage-highlight">
+              <span>Available</span>
+              <strong>{formatBytes(storage.available_bytes)}</strong>
+              <small>on the primary disk</small>
+            </div>
+            <div className="storage-usage">
+              <div className="storage-meter-copy">
+                <span>{formatBytes(storage.used_bytes)} of {formatBytes(storage.total_bytes)} used</span>
+                <strong>{Math.round(usedPercent)}% used</strong>
+              </div>
+              <div
+                className="storage-meter"
+                role="progressbar"
+                aria-label="Primary storage used"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(usedPercent)}
+                aria-valuetext={`${formatBytes(storage.used_bytes)} of ${formatBytes(storage.total_bytes)} used`}
+              >
+                <span style={{ width: `${usedPercent}%` }} />
+              </div>
+              <dl className="storage-metrics">
+                <div><dt>Total</dt><dd>{formatBytes(storage.total_bytes)}</dd></div>
+                <div><dt>Used</dt><dd>{formatBytes(storage.used_bytes)}</dd></div>
+                <div><dt>Available</dt><dd>{formatBytes(storage.available_bytes)}</dd></div>
+              </dl>
+            </div>
+            <div className="storage-actions">
+              <button type="button" className="primary-inline" onClick={() => openReports("analyze")}><BarChart3 />Analyze storage</button>
+              <button type="button" onClick={() => openReports("archive")}><Archive />Archive old files</button>
+            </div>
+          </div>
+        ) : null}
+      </section>
 
       <div className="home-section-heading">
         <div><span className="eyebrow">Disk reports</span><h3>Understand and free space</h3></div>
@@ -250,6 +339,18 @@ function NavButton({ active, icon, label, badge, onClick }: {
   onClick: () => void;
 }) {
   return <button className={active ? "active" : ""} aria-current={active ? "page" : undefined} onClick={onClick}>{icon}<span>{label}</span>{badge ? <small>{badge}</small> : null}</button>;
+}
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let amount = value;
+  let unit = 0;
+  while (amount >= 1024 && unit < units.length - 1) {
+    amount /= 1024;
+    unit += 1;
+  }
+  return `${amount.toFixed(amount >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
 function initialView(): View {

@@ -92,6 +92,12 @@ class ArchiveTargetsResponse(BaseModel):
     recommended_path: Optional[str] = None
 
 
+class StorageSummaryResponse(BaseModel):
+    total_bytes: int = Field(ge=0)
+    used_bytes: int = Field(ge=0)
+    available_bytes: int = Field(ge=0)
+
+
 class ProtectionPreflightResponse(BaseModel):
     platform: str
     supported: bool

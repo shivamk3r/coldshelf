@@ -158,6 +158,10 @@ Runtime behavior:
 - Normal mode serves packaged React assets from
   `src/disk_space_manager/web/static/`, so the frontend and API share the
   single FastAPI port.
+- Home reads the operating system's total, used, and available capacity for the
+  filesystem containing the user's home directory. It refreshes when Home is
+  entered or when the user requests a refresh; failures do not block other
+  dashboard tasks.
 - `--dev` starts `npm run dev` in `frontend/`, passes the backend URL and token
   through Vite environment variables, and enables CORS for the separate Vite
   origin.
@@ -180,6 +184,8 @@ Routes:
 
 - `GET /health`: unauthenticated health check returning `{"status": "ok"}`.
 - `GET /api/config`: default age threshold and duplicate feature flags.
+- `GET /api/storage`: total, used, and available bytes for the filesystem
+  containing the current user's home directory.
 - `GET /api/filesystem/directories?path=&show_hidden=`: current and parent
   paths, home/root/detected-drive shortcuts, and readable child directories.
 - `GET /api/archive-targets`: writable detected drives with path, filesystem,

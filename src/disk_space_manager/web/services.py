@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import shutil
 import uuid
 from datetime import timedelta
 from pathlib import Path
@@ -116,6 +117,19 @@ def available_archive_targets() -> Dict[str, Any]:
     return {
         "drives": drives,
         "recommended_path": drives[0]["path"] if drives else None,
+    }
+
+
+def primary_storage_summary() -> Dict[str, int]:
+    """Return capacity details for the filesystem containing the user's home."""
+    try:
+        usage = shutil.disk_usage(Path.home())
+    except OSError as exc:
+        raise ServiceError("Storage information is temporarily unavailable.") from exc
+    return {
+        "total_bytes": int(usage.total),
+        "used_bytes": int(usage.used),
+        "available_bytes": int(usage.free),
     }
 
 

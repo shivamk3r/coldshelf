@@ -94,12 +94,13 @@ build is checked into `src/disk_space_manager/web/static/` so the packaged
 Python web command can serve the UI without starting Vite.
 
 The frontend uses four top-level tasks: Home, Reports, Protected folders, and
-Help. Reports divide completed results into Overview, Large items, Duplicates,
-Clean, Archive, and Activity tabs. Server-side folder browsing reveals only
-directory metadata to the authenticated process; it does not upload or read
-file contents. Protected-folder catalog paging remains server-side while
-report candidate filtering and paging are client-side over bounded persisted
-candidate lists.
+Help. Home includes an operating-system capacity snapshot for the primary
+filesystem and direct Analyze and Archive entry points. Reports divide
+completed results into Overview, Large items, Duplicates, Clean, Archive, and
+Activity tabs. Server-side folder browsing reveals only directory metadata to
+the authenticated process; it does not upload or read file contents.
+Protected-folder catalog paging remains server-side while report candidate
+filtering and paging are client-side over bounded persisted candidate lists.
 
 ### Workflow Orchestration
 

@@ -3,6 +3,7 @@
 import os
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -134,6 +135,49 @@ def test_archive_target_discovery_returns_space_and_recommendation(tmp_path, mon
             "filesystem": "ExFAT",
         }
     ]
+
+
+def test_primary_storage_returns_capacity_for_home_filesystem(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "disk_space_manager.web.services.shutil.disk_usage",
+        lambda path: SimpleNamespace(
+            total=1_000_000,
+            used=625_000,
+            free=375_000,
+        ),
+    )
+    app = create_app(repository=WebRepository(tmp_path / "web.sqlite3"), token="secret")
+    client = TestClient(app)
+
+    assert client.get("/api/storage").status_code == 401
+    response = client.get("/api/storage", headers=_auth("secret"))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "total_bytes": 1_000_000,
+        "used_bytes": 625_000,
+        "available_bytes": 375_000,
+    }
+
+
+def test_primary_storage_failure_is_sanitized(tmp_path, monkeypatch):
+    def fail_disk_usage(path):
+        raise OSError("sensitive operating-system detail")
+
+    monkeypatch.setattr(
+        "disk_space_manager.web.services.shutil.disk_usage",
+        fail_disk_usage,
+    )
+    app = create_app(repository=WebRepository(tmp_path / "web.sqlite3"), token="secret")
+    client = TestClient(app)
+
+    response = client.get("/api/storage", headers=_auth("secret"))
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "Storage information is temporarily unavailable."
+    }
+    assert "sensitive" not in response.text
 
 
 def test_protection_preflight_explains_unsupported_platform(tmp_path, monkeypatch):

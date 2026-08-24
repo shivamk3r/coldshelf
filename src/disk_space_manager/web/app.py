@@ -46,6 +46,7 @@ from .schemas import (
     ProtectionPreflightResponse,
     RecoveryConfirmationRequest,
     RecoveryImportRequest,
+    StorageSummaryResponse,
 )
 from .security import make_token_dependency
 from .services import (
@@ -53,6 +54,7 @@ from .services import (
     ServiceError,
     available_archive_targets,
     browse_directories,
+    primary_storage_summary,
 )
 
 
@@ -143,6 +145,20 @@ def create_app(
     )
     def archive_targets() -> dict:
         return available_archive_targets()
+
+    @app.get(
+        "/api/storage",
+        response_model=StorageSummaryResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def storage_summary() -> dict:
+        try:
+            return primary_storage_summary()
+        except ServiceError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(exc),
+            )
 
     @app.post(
         "/api/jobs",

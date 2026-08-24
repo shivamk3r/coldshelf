@@ -261,6 +261,8 @@ The web API is token-protected except for `/health`.
 
 - `GET /health`: unauthenticated liveness check.
 - `GET /api/config`: default age threshold and feature availability.
+- `GET /api/storage`: total, used, and available capacity for the primary
+  filesystem containing the user's home directory.
 - `GET /api/filesystem/directories`: list readable child directories and
   home/root/drive shortcuts for the folder picker.
 - `GET /api/archive-targets`: list writable detected drives and free space.

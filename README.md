@@ -113,11 +113,14 @@ port `38765` and `--frontend-port 38766` by default. Both remain configurable
 with `--port` and `--frontend-port`. Use `--host 0.0.0.0` only when you
 intentionally want network access, and keep the token private.
 
-The dashboard opens on **Home**, where task cards lead to Analyze storage,
-Clean caches, Archive old files, Review duplicates, Protect folders, Restore
-files, and Recover a catalog. The searchable **Help** section documents each
-operation, dry runs, exact confirmation phrases, archive symlinks, protected
-folder prerequisites, recovery, terminology, and troubleshooting.
+The dashboard opens on **Home**, where a primary-storage summary shows total,
+used, and available space for the filesystem containing the user's home folder.
+It can be refreshed on demand and links directly to Analyze storage and Archive
+old files. Task cards also lead to Clean caches, Review duplicates, Protect
+folders, Restore files, and Recover a catalog. The searchable **Help** section
+documents each operation, dry runs, exact confirmation phrases, archive
+symlinks, protected folder prerequisites, recovery, terminology, and
+troubleshooting.
 
 The report workflow is:
 
