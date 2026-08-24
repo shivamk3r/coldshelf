@@ -40,6 +40,7 @@ import {
 } from "./api";
 import type { ProtectionOperationPayload } from "./api";
 import type { ProtectionIntent } from "./App";
+import type { BrowseProtectionSeed } from "./BrowseDashboard";
 import { FolderBrowser } from "./FolderBrowser";
 import type {
   DriveTarget,
@@ -53,14 +54,28 @@ import type {
 
 const CATALOG_PAGE_SIZE = 100;
 
-export function ProtectedFolders({ token, intent = "manage", onOpenHelp = () => undefined }: {
+export function ProtectedFolders({
+  token,
+  intent = "manage",
+  createDefaults,
+  targetFolderId,
+  returnPath,
+  onReturnToBrowse = () => undefined,
+  onFilesystemChanged = () => undefined,
+  onOpenHelp = () => undefined
+}: {
   token: string;
   intent?: ProtectionIntent;
+  createDefaults?: BrowseProtectionSeed;
+  targetFolderId?: string;
+  returnPath?: string;
+  onReturnToBrowse?: (path: string) => void;
+  onFilesystemChanged?: () => void;
   onOpenHelp?: (article?: string) => void;
 }) {
   const [preflight, setPreflight] = useState<ProtectionPreflight | null>(null);
   const [folders, setFolders] = useState<ProtectedFolder[]>([]);
-  const [activeId, setActiveId] = useState("");
+  const [activeId, setActiveId] = useState(targetFolderId || "");
   const [detail, setDetail] = useState<ProtectedFolderDetail | null>(null);
   const [volumes, setVolumes] = useState<MountedVolume[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -104,9 +119,9 @@ export function ProtectedFolders({ token, intent = "manage", onOpenHelp = () => 
   }, [token]);
 
   useEffect(() => {
-    refresh().catch((err) => setError(err.message));
+    refresh(activeId).catch((err) => setError(err.message));
     const interval = window.setInterval(() => {
-      refresh().catch((err) => setError(err.message));
+      refresh(activeId).catch((err) => setError(err.message));
     }, 5000);
     return () => {
       window.clearInterval(interval);
@@ -153,6 +168,7 @@ export function ProtectedFolders({ token, intent = "manage", onOpenHelp = () => 
       if (["completed", "failed", "cancelled"].includes(next.status)) {
         source.close();
         if (next.status === "completed") {
+          if (["backup", "restore"].includes(next.kind) || (next.kind === "evict" && next.request.dry_run !== true)) onFilesystemChanged();
           setNotice(`${humanize(next.kind)} completed`);
           if (next.kind === "evict" && next.request.dry_run === true && next.result) {
             setEvictionPreview(next.result);
@@ -195,6 +211,7 @@ export function ProtectedFolders({ token, intent = "manage", onOpenHelp = () => 
     if (!activeId) return;
     setError("");
     await enrollProtectedDrive(token, activeId, volume.mount_path);
+    onFilesystemChanged();
     setNotice(`${volume.name} enrolled`);
     await refresh(activeId);
   }
@@ -215,6 +232,7 @@ export function ProtectedFolders({ token, intent = "manage", onOpenHelp = () => 
           <p>Catalog files offline, back up one disk at a time, and evict only after verified coverage.</p>
         </div>
         <div className="button-row">
+          {returnPath && <button onClick={() => onReturnToBrowse(returnPath)}><ChevronLeft />Back to Browse</button>}
           <button onClick={() => onOpenHelp("protect-setup")}><BookOpen />Protection guide</button>
           <button disabled={preflight?.ready !== true} title={preflight?.ready ? "" : preflight?.message || "Checking prerequisites"} onClick={() => setShowImport((value) => !value)}><Download />Recover</button>
           <button className="primary-inline" disabled={preflight?.ready !== true} title={preflight?.ready ? "" : preflight?.message || "Checking prerequisites"} onClick={() => setShowCreate((value) => !value)}><Plus />New folder</button>
@@ -231,6 +249,7 @@ export function ProtectedFolders({ token, intent = "manage", onOpenHelp = () => 
           ready={preflight?.ready === true}
           blockedReason={preflight?.message}
           created={created}
+          defaults={createDefaults}
           setCreated={setCreated}
           onComplete={(folderId) => {
             setShowCreate(false);
@@ -460,14 +479,20 @@ function FolderSettings({ token, folder, onUpdated, onDeleted, onError }: { toke
   return <section className="settings-panel panel"><div className="section-heading"><div><FolderCog /><h2>Folder settings</h2></div><span>Source path cannot be changed</span></div><div className="form-grid"><div className="field-group"><label htmlFor="settings-name">Display name</label><input id="settings-name" value={name} onChange={(event) => setName(event.target.value)} /></div><div className="field-group"><label htmlFor="settings-copies">Required verified copies</label><input id="settings-copies" type="number" min="1" max="10" value={copies} onChange={(event) => setCopies(Number(event.target.value))} /></div>{lowering && <div className="field-group field-span-2 warning-field"><AlertTriangle /><p>Lowering the copy requirement weakens the eviction gate. Type <code>{loweringPhrase}</code> to confirm.</p><input aria-label="Lower copy count confirmation" value={updatePhrase} onChange={(event) => setUpdatePhrase(event.target.value)} /></div>}</div><button className="primary-inline" disabled={!name.trim() || copies < 1 || copies > 10 || (lowering && updatePhrase !== loweringPhrase)} onClick={() => updateProtectedFolder(token, folder.id, { name: name.trim(), required_copies: copies, ...(lowering ? { confirmation_phrase: updatePhrase } : {}) }).then(onUpdated).catch((err) => onError(err.message))}>Save settings</button><details className="danger-zone"><summary><Trash2 />Delete protected catalog</summary><p>This removes the local catalog and Keychain secret only. Encrypted repositories on enrolled disks remain intact. Deletion is blocked while any catalog file is evicted.</p><code className="confirmation-code">{deleteExpected}</code><input aria-label="Delete protected catalog confirmation" value={deletePhrase} onChange={(event) => setDeletePhrase(event.target.value)} /><button className="danger-button" disabled={deletePhrase !== deleteExpected} onClick={() => deleteProtectedFolder(token, folder.id, deletePhrase).then(onDeleted).catch((err) => onError(err.message))}>Delete catalog only</button></details></section>;
 }
 
-function CreateFolderForm({ token, ready, blockedReason, created, setCreated, onComplete, onError }: { token: string; ready: boolean; blockedReason?: string; created: ProtectedFolderCreated | null; setCreated: (folder: ProtectedFolderCreated | null) => void; onComplete: (folderId: string) => void; onError: (message: string) => void }) {
-  const [name, setName] = useState("");
-  const [path, setPath] = useState("");
+function CreateFolderForm({ token, ready, blockedReason, created, setCreated, defaults, onComplete, onError }: { token: string; ready: boolean; blockedReason?: string; created: ProtectedFolderCreated | null; setCreated: (folder: ProtectedFolderCreated | null) => void; defaults?: BrowseProtectionSeed; onComplete: (folderId: string) => void; onError: (message: string) => void }) {
+  const [name, setName] = useState(defaults?.name || "");
+  const [path, setPath] = useState(defaults?.sourcePath || "");
   const [copies, setCopies] = useState(2);
   const [confirmation, setConfirmation] = useState("");
   const [browse, setBrowse] = useState(false);
+  useEffect(() => {
+    if (defaults) {
+      setName(defaults.name);
+      setPath(defaults.sourcePath);
+    }
+  }, [defaults?.name, defaults?.sourcePath]);
   if (created) return <section className="recovery-key-panel panel"><KeyRound /><div><span className="eyebrow">One-time display</span><h2>Save this recovery key now</h2><p>Store it in your password manager. It will not be shown by the app again.</p><code>{created.recovery_key}</code><details><summary>Standalone recovery instructions</summary><pre>{created.recovery_instructions}</pre></details><label htmlFor="recovery-confirm">Paste the key to confirm it was saved</label><input id="recovery-confirm" type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /><button disabled={confirmation !== created.recovery_key} onClick={() => confirmRecoveryKey(token, created.id, confirmation).then(() => { const id = created.id; setCreated(null); onComplete(id); }).catch((err) => onError(err.message))}>Confirm recovery key</button></div></section>;
-  return <><form className="protected-form panel" onSubmit={(event) => { event.preventDefault(); createProtectedFolder(token, { name, source_path: path, required_copies: copies }).then(setCreated).catch((err) => onError(err.message)); }}><div className="section-heading"><div><Plus /><h2>Create protected folder</h2></div><span>macOS + Restic</span></div><div className="field-group"><label htmlFor="protected-name">Name</label><input id="protected-name" value={name} onChange={(event) => setName(event.target.value)} required /></div><div className="field-group"><label htmlFor="protected-path">Mac folder path</label><div className="input-with-button"><input id="protected-path" value={path} onChange={(event) => setPath(event.target.value)} required placeholder="/Users/you/large-files" /><button type="button" onClick={() => setBrowse(true)}><FolderOpen />Browse</button></div></div><div className="field-group"><label htmlFor="protected-copies">Required independent copies</label><input id="protected-copies" type="number" min="1" max="10" value={copies} onChange={(event) => setCopies(Number(event.target.value))} /><small>Two separately stored disks are recommended.</small></div><button className="primary-inline" disabled={!ready} title={ready ? "" : blockedReason || "Checking prerequisites"}><Plus />Create and generate key</button></form>{browse && <FolderBrowser token={token} initialPath={path} title="Choose the local folder to protect" onClose={() => setBrowse(false)} onSelect={(next) => { setPath(next); setBrowse(false); }} />}</>;
+  return <><form className="protected-form panel" onSubmit={(event) => { event.preventDefault(); createProtectedFolder(token, { name, source_path: path, required_copies: copies }).then(setCreated).catch((err) => onError(err.message)); }}><div className="section-heading"><div><Plus /><h2>Create protected folder</h2></div><span>{defaults ? "Selected from Browse" : "macOS + Restic"}</span></div>{defaults && <p>Save the recovery key, enroll independent disks, back up and verify this folder, then preview eviction before any local files are removed.</p>}<div className="field-group"><label htmlFor="protected-name">Name</label><input id="protected-name" value={name} onChange={(event) => setName(event.target.value)} required /></div><div className="field-group"><label htmlFor="protected-path">Mac folder path</label><div className="input-with-button"><input id="protected-path" value={path} onChange={(event) => setPath(event.target.value)} required placeholder="/Users/you/large-files" /><button type="button" onClick={() => setBrowse(true)}><FolderOpen />Browse</button></div></div><div className="field-group"><label htmlFor="protected-copies">Required independent copies</label><input id="protected-copies" type="number" min="1" max="10" value={copies} onChange={(event) => setCopies(Number(event.target.value))} /><small>Two separately stored disks are recommended.</small></div><button className="primary-inline" disabled={!ready} title={ready ? "" : blockedReason || "Checking prerequisites"}><Plus />Create and generate key</button></form>{browse && <FolderBrowser token={token} initialPath={path} title="Choose the local folder to protect" onClose={() => setBrowse(false)} onSelect={(next) => { setPath(next); setBrowse(false); }} />}</>;
 }
 
 function RecoveryImportForm({ token, ready, blockedReason, volumes, onComplete, onError }: { token: string; ready: boolean; blockedReason?: string; volumes: MountedVolume[]; onComplete: (folderId: string) => void; onError: (message: string) => void }) {

@@ -364,3 +364,29 @@ test("requests the next catalog page and reconnects to a running operation", asy
   await userEvent.click(screen.getByRole("button", { name: "Cancel safely" }));
   expect(api.cancelProtectionOperation).toHaveBeenCalledWith("secret", running.id);
 });
+
+test("prefills a Browse protection handoff and retains the Browse return path", async () => {
+  const onReturnToBrowse = vi.fn();
+  render(
+    <ProtectedFolders
+      token="secret"
+      intent="create"
+      createDefaults={{
+        name: "Inactive project",
+        sourcePath: "/Users/demo/Inactive project",
+        returnPath: "/Users/demo"
+      }}
+      returnPath="/Users/demo"
+      onReturnToBrowse={onReturnToBrowse}
+    />
+  );
+
+  expect(await screen.findByRole("heading", { name: "Create protected folder" })).toBeInTheDocument();
+  expect(screen.getByLabelText("Name")).toHaveValue("Inactive project");
+  expect(screen.getByLabelText("Mac folder path")).toHaveValue("/Users/demo/Inactive project");
+  expect(screen.getByLabelText("Required independent copies")).toHaveValue(2);
+  expect(screen.getByText(/Save the recovery key, enroll independent disks/)).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("button", { name: "Back to Browse" }));
+  expect(onReturnToBrowse).toHaveBeenCalledWith("/Users/demo");
+});

@@ -2,6 +2,9 @@ import type {
   ActionResult,
   AppConfig,
   ArchiveTarget,
+  BrowseResult,
+  BrowseScan,
+  BrowseScanCreated,
   DirectoryListing,
   DriveTarget,
   Job,
@@ -98,6 +101,42 @@ export function browseDirectories(
     `/api/filesystem/directories${suffix ? `?${suffix}` : ""}`,
     token
   );
+}
+
+export function createBrowseScan(
+  token: string,
+  path?: string
+): Promise<BrowseScanCreated> {
+  return apiRequest<BrowseScanCreated>("/api/browse/scans", token, {
+    method: "POST",
+    body: JSON.stringify({ ...(path ? { path } : {}) })
+  });
+}
+
+export function getBrowseResult(token: string, scanId: string): Promise<BrowseResult> {
+  return apiRequest<BrowseResult>(`/api/browse/scans/${scanId}/result`, token);
+}
+
+export function cancelBrowseScan(token: string, scanId: string): Promise<BrowseScan> {
+  return apiRequest<BrowseScan>(`/api/browse/scans/${scanId}/cancel`, token, {
+    method: "POST"
+  });
+}
+
+export function openBrowseEvents(
+  token: string,
+  scanId: string,
+  onScan: (scan: BrowseScan) => void
+): EventSource {
+  const source = new EventSource(
+    `${API_BASE}/api/browse/scans/${scanId}/events?token=${encodeURIComponent(token)}`
+  );
+  source.addEventListener("progress", (event) => {
+    const scan = JSON.parse((event as MessageEvent).data) as BrowseScan;
+    onScan(scan);
+    if (["completed", "failed", "cancelled"].includes(scan.status)) source.close();
+  });
+  return source;
 }
 
 export function listArchiveTargets(

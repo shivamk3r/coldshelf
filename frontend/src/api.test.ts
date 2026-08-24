@@ -1,4 +1,4 @@
-import { clearToken, getStorageSummary, initialToken, openJobEvents } from "./api";
+import { clearToken, getStorageSummary, initialToken, openBrowseEvents, openJobEvents } from "./api";
 
 
 test("captures the startup token and immediately removes it from the visible URL", () => {
@@ -51,6 +51,27 @@ test("closes a report event stream normally when its terminal snapshot arrives",
   } as MessageEvent);
 
   expect(onJob).toHaveBeenCalledWith({ id: "job-1", status: "completed" });
+  expect(source.close).toHaveBeenCalledOnce();
+  vi.unstubAllGlobals();
+});
+
+
+test("closes a Browse event stream for cancelled terminal scans", () => {
+  class FakeEventSource {
+    listeners = new Map<string, (event: MessageEvent) => void>();
+    close = vi.fn();
+    addEventListener(name: string, callback: EventListenerOrEventListenerObject) {
+      this.listeners.set(name, callback as (event: MessageEvent) => void);
+    }
+  }
+  vi.stubGlobal("EventSource", FakeEventSource);
+  const onScan = vi.fn();
+  const source = openBrowseEvents("secret", "browse-1", onScan) as unknown as FakeEventSource;
+  source.listeners.get("progress")?.({
+    data: JSON.stringify({ id: "browse-1", status: "cancelled" })
+  } as MessageEvent);
+
+  expect(onScan).toHaveBeenCalledWith({ id: "browse-1", status: "cancelled" });
   expect(source.close).toHaveBeenCalledOnce();
   vi.unstubAllGlobals();
 });

@@ -26,9 +26,10 @@ The web runtime wraps the same core modules with service and persistence layers:
 
 ```text
 React UI -> FastAPI routes -> web services -> DiskScanner/FileAnalyzer
-                                      |      \-> DuplicateDetector
-                                      v
-                              SQLite + ActionExecutor
+                 |                    |      \-> DuplicateDetector
+                 |                    v
+                 |            SQLite + ActionExecutor
+                 \-> BrowseJobManager -> DirectorySizer (memory only)
 ```
 
 The architectural goal is separation of concerns. Click declarations, web
@@ -113,6 +114,15 @@ Important implementation details:
 
 `get_largest_directories()` and `get_largest_files()` operate on the scanner's
 in-memory results after a scan.
+
+### `src/disk_space_manager/directory_sizer.py`
+
+Owns metadata-only Browse traversal. `prepare()` validates and canonicalizes a
+path and returns immediate names plus direct-file sizes. `scan()` recursively
+sizes only the immediate directory rows without retaining descendant file
+objects. It uses allocated block metadata with a counted logical-size fallback,
+does not follow symbolic links or cross `st_dev` boundaries, keeps partial
+totals and capped errors, and supports cooperative cancellation.
 
 ### `src/disk_space_manager/analyzer.py`
 
@@ -222,6 +232,8 @@ Contains the optional FastAPI application and built React assets.
   exposes authenticated directory/archive-target discovery, and runs
   clean/archive actions only against stored candidate IDs.
 - `jobs.py` queues long-running report jobs on a single background worker.
+- `browse_jobs.py` owns up to 32 cancellable in-memory Browse jobs and submits
+  their recursive sizing to the shared heavy-I/O queue.
 - `repository.py` persists job history, report summaries, candidates, and
   action results in SQLite.
 - `schemas.py` contains Pydantic request/response models for jobs and actions.
@@ -241,6 +253,9 @@ Contains the React/Vite dashboard source.
 - `src/ReportsDashboard.tsx` owns guided scans, report tabs, charts, candidate
   paging/selection, preview invalidation, exact confirmation, destinations,
   results, and action history.
+- `src/BrowseDashboard.tsx` owns one-level navigation, progress/cancellation,
+  allocated/logical totals, sorting/search/pagination, hidden-row visibility,
+  the 32-path session LRU, and protected-folder handoff eligibility.
 - `src/ProtectedFolders.tsx` owns readiness, lifecycle, settings, drives,
   catalog paging, operation reconnection/cancellation, eviction, restore, and
   recovery import.
@@ -265,6 +280,13 @@ The web API is token-protected except for `/health`.
   filesystem containing the user's home directory.
 - `GET /api/filesystem/directories`: list readable child directories and
   home/root/drive shortcuts for the folder picker.
+- `POST /api/browse/scans`: create an ephemeral scan and return its immediate
+  listing.
+- `GET /api/browse/scans/{scan_id}` and `/events`: read or stream Browse job
+  progress.
+- `GET /api/browse/scans/{scan_id}/result`: read completed one-level totals and
+  entries.
+- `POST /api/browse/scans/{scan_id}/cancel`: cancel queued or running sizing.
 - `GET /api/archive-targets`: list writable detected drives and free space.
 - `POST /api/jobs`: create a queued report job.
 - `GET /api/jobs`: list recent persisted jobs.
@@ -284,10 +306,10 @@ The web API is token-protected except for `/health`.
   protected-folder safety model as the CLI. Folder detail accepts `query`,
   `limit`, and `offset` and returns additive catalog pagination metadata.
 
-Report jobs are queued through a `ThreadPoolExecutor` with one worker. Job
-state is persisted in SQLite so prior job summaries remain visible after a
-restart. The repository stores actionable candidates and report summaries, not
-every scanned file.
+Report, Browse, and protected-folder jobs share a `ThreadPoolExecutor` with one
+worker. Report state is persisted in SQLite so prior summaries remain visible
+after a restart. Browse state remains bounded and in memory only. The report
+repository stores actionable candidates and summaries, not every scanned file.
 
 ## Command Flows
 
@@ -355,7 +377,20 @@ This command is read-only.
    `127.0.0.1` in the browser URL.
 
 The web command does not run a scan by itself. Scans start when the frontend or
-another token-authenticated client posts to `/api/jobs`.
+another token-authenticated client posts a report or Browse request.
+
+### Web Browse
+
+1. Create a scan for Home or a selected canonical folder and return immediate
+   entries before recursive directory sizing finishes.
+2. Serialize the scan with report and protected-folder disk work, streaming
+   snapshots until completion, failure, or cancellation.
+3. Render one level with allocated size first and logical size second; hidden
+   rows never alter totals.
+4. Navigate with shortcuts/breadcrumbs/path entry, cancelling superseded work
+   and reusing up to 32 cached completed paths unless Refresh is selected.
+5. For one eligible folder, prefill Protected folders and retain the Browse
+   return path. Continue through all existing recovery and eviction gates.
 
 ### Web report job
 
@@ -384,20 +419,21 @@ The test suite uses pytest and Click's `CliRunner`. It covers archive behavior,
 target precedence, archive target exclusions, repeated archive runs, direct
 executor behavior, Linux drive detection, scanner and analyzer progress,
 duplicate detection, `full-report` smoke coverage, web token/auth behavior,
-web report jobs, web dry-run actions, SQLite repository persistence, and
-profiling helper safety.
+web report jobs, metadata-only Browse sizing/jobs/API, web dry-run actions,
+SQLite repository persistence, and profiling helper safety.
 
 The frontend test suite uses Vitest and React Testing Library for task
-navigation, help search, folder selection, report tabs/candidate controls,
-preview invalidation, confirmation matching, archive destinations, protected
-settings, targeted verification, restore/recovery choices, catalog paging, and
-operation reconnection. TypeScript checks and the production Vite build verify
-the frontend source and generated static assets.
+navigation, help search, folder selection, Browse sizing and protected handoff,
+report tabs/candidate controls, preview invalidation, confirmation matching,
+archive destinations, protected settings, targeted verification,
+restore/recovery choices, catalog paging, and operation reconnection.
+TypeScript checks and the production Vite build verify the frontend source and
+generated static assets.
 
 `scripts/profile_report_generation.py` is the performance harness. It owns and
 recreates `downloads/benchmark`, generates deterministic sparse-file datasets,
-runs `python -m disk_space_manager full-report`, and removes the benchmark tree
-unless `--keep-benchmark` is specified.
+profiles `DirectorySizer`, runs `python -m disk_space_manager full-report`, and
+removes the benchmark tree unless `--keep-benchmark` is specified.
 
 ## Extension Points
 

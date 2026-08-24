@@ -2,7 +2,8 @@
 
 A Python disk maintenance application for Unix-like systems. It can be used as
 a terminal CLI or as an optional FastAPI + React web dashboard for visual disk
-reports, interactive candidate review, and confirmed clean/archive actions.
+reports, one-level folder sizing, interactive candidate review, and confirmed
+clean/archive actions.
 
 The tool is designed for macOS and Linux. It keeps destructive actions
 explicit: clean and archive workflows support dry-run previews, require
@@ -24,9 +25,12 @@ CLI.
   parallel scanning, and optimized analysis.
 - **Safety First**: Requires explicit confirmation before destructive actions.
 - **Rich CLI**: Terminal UI with progress bars, tables, and color-coded output.
-- **Guided Web Dashboard**: Task-based Home, Reports, Protected folders, and
-  searchable Help views for the complete local workflow, including folder
-  browsing, live progress, persisted history, and guarded actions.
+- **Browse by Size**: Inspect one filesystem level at a time with recursively
+  calculated folder sizes, direct-file sizes, hidden-content totals, live
+  progress, cancellation, and session caching.
+- **Guided Web Dashboard**: Task-based Home, Browse, Reports, Protected folders,
+  and searchable Help views for the complete local workflow, including live
+  progress, persisted report history, and guarded actions.
 - **Protected Folders**: macOS-first, encrypted Restic archives replicated to
   independently usable disks, with an offline file catalog and guarded local
   eviction only after the configured copy count is verified.
@@ -121,6 +125,29 @@ folders, Restore files, and Recover a catalog. The searchable **Help** section
 documents each operation, dry runs, exact confirmation phrases, archive
 symlinks, protected folder prerequisites, recovery, terminology, and
 troubleshooting.
+
+The read-only **Browse** view opens the user's home folder and lists immediate
+folders and files. Folder rows are sized recursively using allocation metadata;
+the primary **On disk** value uses `st_blocks × 512` when available, while the
+secondary **Logical** value uses file content lengths. Hidden rows can be shown
+or hidden without changing totals. Browse never follows symbolic links or
+crosses into a nested mounted filesystem, and permission failures produce
+partial totals with capped error details rather than aborting the whole scan.
+
+Use Home, Computer, or detected-drive shortcuts, breadcrumbs, the parent
+button, or a direct path to navigate. Results are sorted by on-disk size by
+default and can be searched, re-sorted, paged, refreshed, or cancelled. Up to
+32 completed paths are cached for the current frontend session; successful
+clean, archive, protected backup/enrollment, eviction, or restore operations
+clear that cache.
+
+Eligible local folders offer **Protect & offload**. This only prefills the
+existing Protected folders creation flow with the folder name/path and two
+required copies. Recovery-key confirmation, disk enrollment, backup,
+verification, eviction preview, and exact confirmation remain mandatory.
+Existing exact protected paths open their protected-folder detail; overlapping,
+external, mounted-boundary, symbolic-link, unreadable, and unwritable sources
+are blocked with an explanation. Direct files remain informational only.
 
 The report workflow is:
 
@@ -435,6 +462,9 @@ The web dashboard also stores job history, report summaries, actionable
 candidates, and action results in SQLite. It does not store every scanned file,
 which keeps the database bounded for large scans.
 
+Browse scans and results are intentionally ephemeral: at most 32 jobs are kept
+in memory and no Browse rows are written to SQLite or report history.
+
 Protected-folder operation history in
 `~/.disk-space-manager-protected.sqlite3` includes duration, last progress,
 failure type, and Restic exit code when available. Backup audit entries include
@@ -450,6 +480,7 @@ src/disk_space_manager/workflows.py       CLI workflow orchestration
 src/disk_space_manager/ui.py              Rich terminal presentation
 src/disk_space_manager/archive_targets.py Archive target resolution
 src/disk_space_manager/scanner.py         Filesystem scanning
+src/disk_space_manager/directory_sizer.py Metadata-only Browse sizing
 src/disk_space_manager/analyzer.py        File categorization and estimates
 src/disk_space_manager/duplicates.py      Duplicate and near-duplicate analysis
 src/disk_space_manager/executor.py        File operations and logging
@@ -477,12 +508,12 @@ agent skills live in `.agents/skills/`, and shared command prompts live in
 - External drives must be mounted and writable when using `--external-path` or
   auto-detection.
 - Scanning speed is bounded by filesystem I/O.
-- The web backend serializes report and protected-folder disk work through one
-  shared heavy-I/O queue.
+- The web backend serializes report, Browse, and protected-folder disk work
+  through one shared heavy-I/O queue.
 - The web token model is suitable for local or carefully controlled server use;
   it is not a multi-user account system.
-- Report jobs cannot currently be cancelled once started; Restic-backed
-  protection operations can be cancelled safely.
+- Report jobs cannot currently be cancelled once started; Browse sizing and
+  Restic-backed protection operations support cooperative cancellation.
 - Protected folders currently require macOS stable volume UUID discovery.
 
 ## License

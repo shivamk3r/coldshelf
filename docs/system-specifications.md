@@ -167,7 +167,8 @@ Runtime behavior:
   origin.
 - Binding to a non-localhost host is explicit and should be treated as network
   mode.
-- The backend uses a single background worker for heavy report jobs.
+- The backend uses a single shared background worker for heavy report, Browse,
+  and protected-folder jobs.
 - Failure to open the operating-system browser is non-fatal; the printed URL
   remains available.
 
@@ -188,6 +189,16 @@ Routes:
   containing the current user's home directory.
 - `GET /api/filesystem/directories?path=&show_hidden=`: current and parent
   paths, home/root/detected-drive shortcuts, and readable child directories.
+- `POST /api/browse/scans`: create an ephemeral Browse scan from an optional
+  path and return its job plus the immediate one-level listing.
+- `GET /api/browse/scans/{scan_id}`: fetch queued/running/completed/failed/
+  cancelled state, progress counters, timestamps, and cancellation state.
+- `GET /api/browse/scans/{scan_id}/events`: stream Browse job snapshots through
+  terminal state.
+- `GET /api/browse/scans/{scan_id}/result`: fetch the completed canonical path,
+  roots, totals, hidden totals, sized entries, fallback count, and errors.
+- `POST /api/browse/scans/{scan_id}/cancel`: cancel queued work immediately or
+  request cooperative cancellation of running sizing.
 - `GET /api/archive-targets`: writable detected drives with path, filesystem,
   device, free space, and the recommended path.
 - `POST /api/jobs`: create a queued report job.
@@ -218,6 +229,34 @@ Routes:
   `/cancel` routes: reconnect to, stream, or safely cancel operations.
 - `POST /api/protection/import`: recover a catalog with a chosen required-copy
   policy.
+
+Browse scan behavior:
+
+- An omitted path defaults to the user's home directory. The create response
+  exposes immediate names and direct-file metadata before recursive folder
+  sizing completes.
+- Each entry reports canonical path; directory/file/symlink/other kind;
+  hidden/readable/writable/symlink/mount-boundary flags; allocated/logical
+  bytes; descendant file/folder counts; allocation fallback and error counts;
+  skipped mounts; protection eligibility/blocker; and pending, complete,
+  partial, unavailable, or boundary sizing state.
+- Allocated bytes use `st_blocks × 512` and fall back to `st_size` only when
+  block metadata is unavailable. Logical bytes use `st_size`.
+- Hidden descendants always contribute to totals. The frontend hidden toggle
+  changes row visibility only.
+- Traversal reads metadata only, never follows symbolic links, and never
+  crosses from the selected path's device into a nested filesystem.
+- Inaccessible descendants produce partial totals. At most 100 error details
+  are returned while the full error count is retained.
+- Jobs share the serialized heavy-I/O queue and are not added to SQLite or
+  report history. At most 32 recent jobs remain in backend memory.
+- The frontend caches at most 32 completed canonical paths for the app session;
+  Refresh bypasses that cache, and successful in-app filesystem mutations clear
+  it.
+- Protection handoff is folder-only and blocks symlinks, mount boundaries,
+  external sources, unreadable/unwritable paths, and overlaps. Exact matches
+  open the existing protected folder. New handoffs prefill name/path and two
+  required copies without bypassing any protected-folder safety gate.
 
 Job creation request:
 
@@ -300,6 +339,8 @@ Persistence rules:
 - Action results are persisted after clean/archive requests.
 - Confirmation phrases are derived from action type and job ID; they are not
   separately stored.
+- Browse jobs, listings, and results are memory-only and never written to these
+  tables.
 
 ## Scan Specification
 
@@ -489,6 +530,10 @@ The current test suite covers these behavioral invariants:
   the local target directory.
 - Directory browsing covers hidden entries, missing/unreadable paths, and
   archive-drive shortcuts; archive-target discovery covers free-space fields.
+- Browse sizing covers recursive one-level aggregation, direct files, hidden
+  totals, allocation fallback, symbolic links, mount boundaries, partial
+  errors, cancellation, authentication, SSE termination, bounded retention,
+  and shared-queue behavior.
 - Action-history responses preserve archive target paths.
 - Protected preflight and catalog query/limit/offset metadata are covered.
 - Server startup covers default opening, `--no-open`, wildcard/IPv6 URLs,
@@ -496,10 +541,12 @@ The current test suite covers these behavioral invariants:
 - SQLite repository persistence covers jobs, reports, candidates, and action
   results.
 - Frontend coverage verifies task navigation, help search, directory selection,
-  report tabs/filtering/selection, preview invalidation, exact confirmations,
-  archive payloads, protected settings/deletion guards, selected full verify,
-  restore/import options, pagination, operation recovery, and cancellation.
-- Profiling helper cleanup is safe and rejects unsafe benchmark paths.
+  Browse navigation/sizing/protection handoff, report tabs/filtering/selection,
+  preview invalidation, exact confirmations, archive payloads, protected
+  settings/deletion guards, selected full verify, restore/import options,
+  pagination, operation recovery, and cancellation.
+- Profiling helper cleanup is safe, rejects unsafe benchmark paths, and runs the
+  metadata-only Browse sizer before the report pipeline.
 
 ## Verification
 
@@ -529,7 +576,8 @@ uv run python -m disk_space_manager full-report --path tests --age-months 6
 uv run python scripts/profile_report_generation.py --file-count 10000 --max-bytes 50000000
 ```
 
-Run the profiler only for performance-sensitive scanner, analyzer, progress, or
-report changes. The profiler owns `downloads/benchmark` and may delete and
-recreate it. The profiler exercises CLI `full-report`; it does not exercise the
-FastAPI server, SQLite job queue, or React dashboard.
+Run the profiler only for performance-sensitive scanner, Browse sizer,
+analyzer, progress, or report changes. The profiler owns `downloads/benchmark`
+and may delete and recreate it. It exercises the core Browse sizer and CLI
+`full-report`; it does not exercise the FastAPI server, job queue, or React
+dashboard.

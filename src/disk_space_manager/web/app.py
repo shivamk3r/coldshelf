@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from disk_space_manager.config import DEFAULT_AGE_THRESHOLD_MONTHS
+from disk_space_manager.directory_sizer import DirectorySizingError
 from disk_space_manager.protection.repository import (
     DEFAULT_PROTECTION_DB_PATH,
     ProtectionRepository,
@@ -21,6 +22,7 @@ from disk_space_manager.protection.restic import MIN_RESTIC_VERSION
 from disk_space_manager.protection.service import ProtectionError, ProtectionService
 
 from .io_queue import HeavyIOQueue
+from .browse_jobs import BrowseJobManager, BrowseJobNotFound, BrowseResultNotReady
 from .jobs import JobManager
 from .protection_jobs import ProtectionOperationManager
 from .repository import DEFAULT_DB_PATH, WebRepository
@@ -29,6 +31,10 @@ from .schemas import (
     ActionResponse,
     ActionsListResponse,
     ArchiveTargetsResponse,
+    BrowseJobResponse,
+    BrowseResultResponse,
+    BrowseScanCreateRequest,
+    BrowseScanCreateResponse,
     DirectoryListResponse,
     JobCreateRequest,
     JobResponse,
@@ -54,6 +60,7 @@ from .services import (
     ServiceError,
     available_archive_targets,
     browse_directories,
+    filesystem_roots,
     primary_storage_summary,
 )
 
@@ -86,6 +93,7 @@ def create_app(
     protection = protection_service or ProtectionService(repository=protection_repo)
     io_queue = HeavyIOQueue()
     job_manager = JobManager(repo, io_queue)
+    browse_manager = BrowseJobManager(io_queue, filesystem_roots)
     protection_manager = ProtectionOperationManager(
         protection_repo, protection, io_queue
     )
@@ -100,6 +108,7 @@ def create_app(
     app = FastAPI(title="Disk Space Manager Web", lifespan=lifespan)
     app.state.repository = repo
     app.state.job_manager = job_manager
+    app.state.browse_manager = browse_manager
     app.state.protection_repository = protection_repo
     app.state.protection_service = protection
     app.state.protection_manager = protection_manager
@@ -137,6 +146,72 @@ def create_app(
             return browse_directories(path, show_hidden=show_hidden)
         except ServiceError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    @app.post(
+        "/api/browse/scans",
+        response_model=BrowseScanCreateResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def create_browse_scan(request: BrowseScanCreateRequest) -> dict:
+        try:
+            return browse_manager.submit(request.path)
+        except DirectorySizingError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    @app.get(
+        "/api/browse/scans/{scan_id}",
+        response_model=BrowseJobResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def get_browse_scan(scan_id: str) -> dict:
+        try:
+            return browse_manager.get_job(scan_id)
+        except BrowseJobNotFound:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Browse scan not found")
+
+    @app.get(
+        "/api/browse/scans/{scan_id}/result",
+        response_model=BrowseResultResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def get_browse_result(scan_id: str) -> dict:
+        try:
+            return browse_manager.get_result(scan_id)
+        except BrowseJobNotFound:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Browse scan not found")
+        except BrowseResultNotReady as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+    @app.get("/api/browse/scans/{scan_id}/events", dependencies=[Depends(verify_token)])
+    async def browse_scan_events(scan_id: str) -> StreamingResponse:
+        try:
+            browse_manager.get_job(scan_id)
+        except BrowseJobNotFound:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Browse scan not found")
+
+        async def stream():
+            while True:
+                try:
+                    scan = browse_manager.get_job(scan_id)
+                except BrowseJobNotFound:
+                    break
+                yield f"event: progress\ndata: {json.dumps(scan)}\n\n"
+                if scan["status"] in {"completed", "failed", "cancelled"}:
+                    break
+                await asyncio.sleep(0.5)
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
+    @app.post(
+        "/api/browse/scans/{scan_id}/cancel",
+        response_model=BrowseJobResponse,
+        dependencies=[Depends(verify_token)],
+    )
+    def cancel_browse_scan(scan_id: str) -> dict:
+        try:
+            return browse_manager.cancel(scan_id)
+        except BrowseJobNotFound:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Browse scan not found")
 
     @app.get(
         "/api/archive-targets",

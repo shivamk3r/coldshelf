@@ -7,6 +7,7 @@ import {
   CopyCheck,
   Database,
   FileSearch,
+  FolderTree,
   HardDrive,
   Home,
   KeyRound,
@@ -19,14 +20,22 @@ import {
 } from "lucide-react";
 
 import { ApiError, clearToken, getConfig, getStorageSummary, initialToken, saveToken } from "./api";
+import { BrowseDashboard, clearBrowseCache } from "./BrowseDashboard";
+import type { BrowseProtectionSeed } from "./BrowseDashboard";
 import { HelpCenter } from "./HelpCenter";
 import { ProtectedFolders } from "./ProtectedFolders";
 import { ReportsDashboard } from "./ReportsDashboard";
 import type { ReportIntent } from "./ReportsDashboard";
 import type { StorageSummary } from "./types";
 
-type View = "home" | "reports" | "protection" | "help";
+type View = "home" | "browse" | "reports" | "protection" | "help";
 export type ProtectionIntent = "manage" | "create" | "restore" | "recover";
+
+interface ProtectionLaunch {
+  seed?: BrowseProtectionSeed;
+  folderId?: string;
+  returnPath?: string;
+}
 
 export function App() {
   const [token, setToken] = useState(initialToken());
@@ -34,6 +43,8 @@ export function App() {
   const [view, setView] = useState<View>(initialView());
   const [reportIntent, setReportIntent] = useState<ReportIntent>("analyze");
   const [protectionIntent, setProtectionIntent] = useState<ProtectionIntent>("manage");
+  const [protectionLaunch, setProtectionLaunch] = useState<ProtectionLaunch>({});
+  const [browsePath, setBrowsePath] = useState("");
   const [helpArticle, setHelpArticle] = useState("start");
   const [jobsCount, setJobsCount] = useState(0);
   const [checkingToken, setCheckingToken] = useState(Boolean(token));
@@ -72,9 +83,15 @@ export function App() {
     setView("reports");
   }
 
-  function openProtection(intent: ProtectionIntent) {
+  function openProtection(intent: ProtectionIntent, launch: ProtectionLaunch = {}) {
     setProtectionIntent(intent);
+    setProtectionLaunch(launch);
     setView("protection");
+  }
+
+  function openBrowse(path = browsePath) {
+    if (path) setBrowsePath(path);
+    setView("browse");
   }
 
   function openHelp(article = "start") {
@@ -84,6 +101,7 @@ export function App() {
 
   function disconnect() {
     clearToken();
+    clearBrowseCache();
     setToken("");
     setTokenInput("");
     setAuthError("");
@@ -131,6 +149,7 @@ export function App() {
         </div>
         <nav className="primary-nav" aria-label="Dashboard">
           <NavButton active={view === "home"} icon={<Home />} label="Home" onClick={() => setView("home")} />
+          <NavButton active={view === "browse"} icon={<FolderTree />} label="Browse" onClick={() => openBrowse()} />
           <NavButton active={view === "reports"} icon={<Database />} label="Reports" badge={jobsCount || undefined} onClick={() => setView("reports")} />
           <NavButton active={view === "protection"} icon={<ShieldCheck />} label="Protected folders" onClick={() => openProtection("manage")} />
           <NavButton active={view === "help"} icon={<BookOpen />} label="Help" onClick={() => openHelp()} />
@@ -163,16 +182,37 @@ export function App() {
             intent={reportIntent}
             onOpenHelp={openHelp}
             onJobsChanged={setJobsCount}
+            onFilesystemChanged={clearBrowseCache}
+          />
+        )}
+        {view === "browse" && (
+          <BrowseDashboard
+            token={token}
+            initialPath={browsePath}
+            onPathChanged={setBrowsePath}
+            onProtect={(seed) => openProtection("create", { seed, returnPath: seed.returnPath })}
+            onOpenProtected={(folderId, returnPath) => openProtection("manage", { folderId, returnPath })}
+            onOpenHelp={openHelp}
           />
         )}
         {view === "protection" && (
-          <ProtectedFolders token={token} intent={protectionIntent} onOpenHelp={openHelp} />
+          <ProtectedFolders
+            token={token}
+            intent={protectionIntent}
+            createDefaults={protectionLaunch.seed}
+            targetFolderId={protectionLaunch.folderId}
+            returnPath={protectionLaunch.returnPath}
+            onReturnToBrowse={(path) => openBrowse(path)}
+            onFilesystemChanged={clearBrowseCache}
+            onOpenHelp={openHelp}
+          />
         )}
         {view === "help" && (
           <HelpCenter
             initialArticle={helpArticle}
             onOpenReports={() => openReports("analyze")}
             onOpenProtection={() => openProtection("manage")}
+            onOpenBrowse={() => openBrowse()}
           />
         )}
       </section>
@@ -355,5 +395,5 @@ function formatBytes(value: number): string {
 
 function initialView(): View {
   const value = window.location.hash.replace(/^#\//, "");
-  return ["reports", "protection", "help"].includes(value) ? value as View : "home";
+  return ["browse", "reports", "protection", "help"].includes(value) ? value as View : "home";
 }

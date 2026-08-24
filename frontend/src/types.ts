@@ -150,6 +150,74 @@ export interface DirectoryListing {
   directories: DirectoryLocation[];
 }
 
+export type BrowseScanStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+export type BrowseEntryKind = "directory" | "file" | "symlink" | "other";
+export type BrowseSizeState = "pending" | "complete" | "partial" | "unavailable" | "boundary";
+
+export interface BrowseScan {
+  id: string;
+  status: BrowseScanStatus;
+  path: string;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error?: string | null;
+  progress_percent: number;
+  progress_message: string;
+  files_scanned: number;
+  directories_scanned: number;
+  completed_entries: number;
+  total_entries: number;
+  cancel_requested: boolean;
+}
+
+export interface BrowseEntry {
+  name: string;
+  path: string;
+  kind: BrowseEntryKind;
+  hidden: boolean;
+  readable: boolean;
+  writable: boolean;
+  symlink: boolean;
+  mount_boundary: boolean;
+  logical_bytes?: number | null;
+  allocated_bytes?: number | null;
+  allocation_fallback_count: number;
+  file_count: number;
+  directory_count: number;
+  error_count: number;
+  skipped_mount_count: number;
+  size_state: BrowseSizeState;
+  protection_eligible: boolean;
+  protection_blocker?: string | null;
+}
+
+export interface BrowseListing {
+  current_path: string;
+  parent_path?: string | null;
+  roots: DirectoryLocation[];
+  entries: BrowseEntry[];
+}
+
+export interface BrowseResult extends BrowseListing {
+  logical_bytes: number;
+  allocated_bytes: number;
+  file_count: number;
+  directory_count: number;
+  hidden_entry_count: number;
+  hidden_logical_bytes: number;
+  hidden_allocated_bytes: number;
+  allocation_fallback_count: number;
+  error_count: number;
+  errors: string[];
+  measured_at: string;
+}
+
+export interface BrowseScanCreated {
+  scan: BrowseScan;
+  listing: BrowseListing;
+}
+
 export interface ArchiveTarget {
   name: string;
   path: string;

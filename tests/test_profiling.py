@@ -75,6 +75,10 @@ def test_run_profile_cleans_up_after_success(tmp_path, monkeypatch):
         "repo_root": repo_root.resolve(),
     }
     assert result.stats.file_count == 5
+    assert result.browse_file_count == 5
+    assert result.browse_logical_bytes == result.stats.logical_bytes
+    assert result.browse_immediate_entries == 1
+    assert result.browse_peak_bytes > 0
     assert not benchmark_dir.exists()
 
 

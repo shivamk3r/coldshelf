@@ -37,6 +37,8 @@ The main workflows are:
 - Start `disk-space-manager-web` to create report jobs, watch live progress,
   review charts/tables, select persisted candidates, and run dry-run or
   confirmed clean/archive actions without returning to the CLI.
+- Browse immediate files and recursively sized immediate folders, starting at
+  Home and navigating one filesystem level at a time without reading content.
 - Manage protected-folder settings, drives, catalog pages, verification,
   eviction, restore, and fresh-Mac recovery from the same authenticated UI.
 
@@ -84,6 +86,8 @@ prompts. The root `main.py` is only a checkout compatibility shim.
 - `app.py` declares the HTTP API, token dependencies, SSE progress endpoint,
   and static frontend serving.
 - `jobs.py` queues long-running report jobs on a single background worker.
+- `browse_jobs.py` owns cancellable, bounded, in-memory Browse jobs on that same
+  serialized heavy-I/O queue.
 - `services.py` translates web requests into scanner/analyzer/duplicate/action
   operations.
 - `repository.py` persists web state in SQLite.
@@ -93,12 +97,14 @@ prompts. The root `main.py` is only a checkout compatibility shim.
 build is checked into `src/disk_space_manager/web/static/` so the packaged
 Python web command can serve the UI without starting Vite.
 
-The frontend uses four top-level tasks: Home, Reports, Protected folders, and
-Help. Home includes an operating-system capacity snapshot for the primary
-filesystem and direct Analyze and Archive entry points. Reports divide
-completed results into Overview, Large items, Duplicates, Clean, Archive, and
-Activity tabs. Server-side folder browsing reveals only directory metadata to
-the authenticated process; it does not upload or read file contents.
+The frontend uses five top-level tasks: Home, Browse, Reports, Protected
+folders, and Help. Home includes an operating-system capacity snapshot for the
+primary filesystem and direct Analyze and Archive entry points. Browse sizes
+one level at a time, retains completed paths in a 32-entry session LRU, and can
+prefill the existing protected-folder lifecycle for an eligible folder. Reports
+divide completed results into Overview, Large items, Duplicates, Clean,
+Archive, and Activity tabs. Server-side folder browsing reveals only directory
+metadata to the authenticated process; it does not upload or read file contents.
 Protected-folder catalog paging remains server-side while report candidate
 filtering and paging are client-side over bounded persisted candidate lists.
 
@@ -123,6 +129,17 @@ metadata plus directory size totals. It is optimized for large trees by using
 `os.scandir`, scanning top-level subdirectories in parallel, batching progress
 events, and storing raw epoch timestamps instead of converting every timestamp
 into `datetime` objects.
+
+### Browse Directory Sizer
+
+`src/disk_space_manager/directory_sizer.py` lists immediate entries and then
+recursively aggregates each immediate directory using metadata only. It does
+not retain descendant file objects or read file contents. Allocated bytes use
+`st_blocks × 512`, with an explicit fallback count when only `st_size` is
+available; logical bytes use `st_size`. Traversal includes hidden content,
+never follows symbolic links, stays on the selected root's `st_dev`, returns
+partial totals for inaccessible descendants, caps displayed errors at 100, and
+checks a cooperative cancellation event between directory entries.
 
 ### Analyzer
 
@@ -201,13 +218,27 @@ Web data flow:
 8. `ActionService` reloads selected candidates from SQLite and calls
    `ActionExecutor`.
 
+Browse data flow:
+
+1. React posts an optional path and immediately receives canonical navigation
+   metadata, root shortcuts, entry names, and direct-file sizes.
+2. `BrowseJobManager` queues recursive folder sizing on the same single
+   heavy-I/O queue used by reports and protected-folder operations.
+3. React streams queued/running/completed/failed/cancelled snapshots through
+   SSE and can request cooperative cancellation. Navigating cancels a
+   superseded scan.
+4. A completed result supplies total and hidden logical/allocated bytes,
+   descendant counts, sizing states, fallback counts, and capped errors.
+5. Browse keeps at most 32 jobs in backend memory and 32 canonical completed
+   paths in the frontend session cache; neither is persisted as report history.
+
 ## Safety Model
 
 Safety is a top-level system requirement because the tool can delete or move
 user files.
 
-- `analyze`, `full-report`, duplicate detection, and report-job generation are
-  read-only.
+- `analyze`, `full-report`, duplicate detection, report-job generation, and
+  Browse sizing are read-only.
 - Duplicate and near-duplicate sections are advisory report output only.
 - CLI `clean` and `archive` require explicit confirmation before mutating files
   unless the global `--dry-run` flag is used.
@@ -228,6 +259,8 @@ user files.
 - Archive candidate generation skips symlink paths.
 - Permission and filesystem errors are handled without aborting the whole scan
   where possible.
+- Browse protection handoff cannot bypass the existing recovery-key, enrollment,
+  backup, verification, preview, copy-count, or exact-confirmation gates.
 
 Automated validation must use temporary directories or intentionally small test
 paths. It must not run destructive `clean` or `archive` operations against a
@@ -248,12 +281,12 @@ The scanner is designed for large filesystem trees. Key choices are:
   communication.
 - Duplicate detection hashes only same-size exact candidates and caps
   near-duplicate fingerprinting by media type to protect report runtime.
-- The web backend runs one heavy report job at a time to avoid multiple broad
-  scans competing for the same disk.
+- The web backend serializes heavy report, Browse, and protected-folder work to
+  avoid multiple broad operations competing for the same disk.
 
 The profiling workflow in `scripts/profile_report_generation.py` owns
-`downloads/benchmark`, can generate large sparse benchmark datasets, runs CLI
-`full-report`, and cleans up by default.
+`downloads/benchmark`, can generate large sparse benchmark datasets, profiles
+the metadata-only Browse sizer, runs CLI `full-report`, and cleans up by default.
 
 ## Operating Boundaries
 

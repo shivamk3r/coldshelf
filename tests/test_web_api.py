@@ -34,6 +34,17 @@ def _wait_for_job(client, token, job_id):
     raise AssertionError("job did not finish")
 
 
+def _wait_for_browse_scan(client, token, scan_id):
+    for _ in range(100):
+        response = client.get(f"/api/browse/scans/{scan_id}", headers=_auth(token))
+        assert response.status_code == 200
+        scan = response.json()
+        if scan["status"] in {"completed", "failed", "cancelled"}:
+            return scan
+        time.sleep(0.02)
+    raise AssertionError("browse scan did not finish")
+
+
 def test_api_requires_token(tmp_path):
     app = create_app(repository=WebRepository(tmp_path / "web.sqlite3"), token="secret")
     client = TestClient(app)
@@ -103,6 +114,84 @@ def test_directory_browser_reports_missing_and_unreadable_paths(tmp_path, monkey
     )
     assert unreadable.status_code == 400
     assert "not readable" in unreadable.json()["detail"]
+
+
+def test_browse_scan_lists_immediate_entries_and_returns_recursive_sizes(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "top.bin").write_bytes(b"top")
+    child = source / "project"
+    child.mkdir()
+    (child / "nested.bin").write_bytes(b"nested payload")
+    hidden = source / ".hidden"
+    hidden.mkdir()
+    (hidden / "secret.bin").write_bytes(b"secret")
+    state = tmp_path / "state"
+    state.mkdir()
+    app = create_app(repository=WebRepository(state / "web.sqlite3"), token="secret")
+
+    with TestClient(app) as client:
+        assert client.post("/api/browse/scans", json={"path": str(source)}).status_code == 401
+        created = client.post(
+            "/api/browse/scans",
+            json={"path": str(source)},
+            headers=_auth("secret"),
+        )
+        assert created.status_code == 200, created.text
+        payload = created.json()
+        listing = payload["listing"]
+        assert listing["current_path"] == str(source.resolve())
+        assert {entry["name"] for entry in listing["entries"]} == {
+            ".hidden",
+            "project",
+            "top.bin",
+        }
+        initial = {entry["name"]: entry for entry in listing["entries"]}
+        assert initial["top.bin"]["logical_bytes"] == 3
+        assert initial["project"]["size_state"] == "pending"
+
+        scan = _wait_for_browse_scan(client, "secret", payload["scan"]["id"])
+        assert scan["status"] == "completed"
+        result_response = client.get(
+            f"/api/browse/scans/{scan['id']}/result",
+            headers=_auth("secret"),
+        )
+        assert result_response.status_code == 200, result_response.text
+        result = result_response.json()
+        entries = {entry["name"]: entry for entry in result["entries"]}
+        assert entries["project"]["logical_bytes"] == len(b"nested payload")
+        assert entries["project"]["size_state"] == "complete"
+        assert result["logical_bytes"] == len(b"topnested payloadsecret")
+        assert result["hidden_entry_count"] == 1
+        assert result["hidden_logical_bytes"] == len(b"secret")
+        assert result["allocated_bytes"] >= 0
+
+        assert client.get(f"/api/browse/scans/{scan['id']}/events").status_code == 401
+        events = client.get(
+            f"/api/browse/scans/{scan['id']}/events",
+            params={"token": "secret"},
+        )
+        assert events.status_code == 200
+        assert "event: progress" in events.text
+        assert '"status": "completed"' in events.text
+
+
+def test_browse_scan_rejects_missing_paths_and_unfinished_results(tmp_path):
+    app = create_app(repository=WebRepository(tmp_path / "web.sqlite3"), token="secret")
+    with TestClient(app) as client:
+        missing = client.post(
+            "/api/browse/scans",
+            json={"path": str(tmp_path / "missing")},
+            headers=_auth("secret"),
+        )
+        assert missing.status_code == 400
+        assert "does not exist" in missing.json()["detail"]
+
+        unknown = client.get(
+            "/api/browse/scans/not-found/result",
+            headers=_auth("secret"),
+        )
+        assert unknown.status_code == 404
 
 
 def test_archive_target_discovery_returns_space_and_recommendation(tmp_path, monkeypatch):

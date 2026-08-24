@@ -30,7 +30,50 @@ vi.mock("./api", async () => {
       progress_message: "Queued",
       confirmation_phrases: { clean: "CLEAN job-1", archive: "ARCHIVE job-1" }
     }),
-    openJobEvents: vi.fn(() => ({ close: vi.fn(), addEventListener: vi.fn() }))
+    openJobEvents: vi.fn(() => ({ close: vi.fn(), addEventListener: vi.fn() })),
+    listProtectedFolders: vi.fn().mockResolvedValue([]),
+    createBrowseScan: vi.fn().mockResolvedValue({
+      scan: {
+        id: "browse-1",
+        status: "completed",
+        path: "/Users/demo",
+        created_at: "now",
+        started_at: "now",
+        finished_at: "now",
+        progress_percent: 100,
+        progress_message: "Sizing complete",
+        files_scanned: 0,
+        directories_scanned: 0,
+        completed_entries: 0,
+        total_entries: 0,
+        cancel_requested: false
+      },
+      listing: {
+        current_path: "/Users/demo",
+        parent_path: "/Users",
+        roots: [],
+        entries: []
+      }
+    }),
+    getBrowseResult: vi.fn().mockResolvedValue({
+      current_path: "/Users/demo",
+      parent_path: "/Users",
+      roots: [],
+      entries: [],
+      logical_bytes: 0,
+      allocated_bytes: 0,
+      file_count: 0,
+      directory_count: 0,
+      hidden_entry_count: 0,
+      hidden_logical_bytes: 0,
+      hidden_allocated_bytes: 0,
+      allocation_fallback_count: 0,
+      error_count: 0,
+      errors: [],
+      measured_at: "now"
+    }),
+    cancelBrowseScan: vi.fn(),
+    openBrowseEvents: vi.fn(() => ({ close: vi.fn(), addEventListener: vi.fn() }))
   };
 });
 
@@ -107,4 +150,25 @@ test("keeps Home usable and retries when storage lookup fails", async () => {
 
   expect(await screen.findByText("768 GB of 1.0 TB used")).toBeInTheDocument();
   expect(getStorageSummary).toHaveBeenCalledTimes(2);
+});
+
+test("opens Browse from the five-item sidebar and updates hash navigation", async () => {
+  render(<App />);
+
+  const navigation = await screen.findByRole("navigation", { name: "Dashboard" });
+  expect(navigation.querySelectorAll("button")).toHaveLength(5);
+  await userEvent.click(screen.getByRole("button", { name: "Browse" }));
+
+  expect(await screen.findByRole("heading", { name: "Browse storage" })).toBeInTheDocument();
+  expect(window.location.hash).toBe("#/browse");
+  expect(screen.getByRole("button", { name: "Browse" })).toHaveAttribute("aria-current", "page");
+});
+
+test("restores Browse directly from its hash route", async () => {
+  window.history.replaceState({}, "", "/#/browse");
+
+  render(<App />);
+
+  expect(await screen.findByRole("heading", { name: "Browse storage" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Browse" })).toHaveAttribute("aria-current", "page");
 });

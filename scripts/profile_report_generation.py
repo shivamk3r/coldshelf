@@ -9,9 +9,12 @@ import shutil
 import subprocess
 import sys
 import time
+import tracemalloc
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
+
+from disk_space_manager.directory_sizer import DirectorySizer
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +49,13 @@ class ProfileResult:
     stats: BenchmarkStats
     initial_cleanup_seconds: float
     setup_seconds: float
+    browse_seconds: float
+    browse_peak_bytes: int
+    browse_immediate_entries: int
+    browse_file_count: int
+    browse_directory_count: int
+    browse_logical_bytes: int
+    browse_allocated_bytes: int
     report_seconds: float
     final_cleanup_seconds: float
     kept_benchmark: bool
@@ -298,6 +308,20 @@ def run_report(benchmark_dir: Path, age_months: int, repo_root: Path = REPO_ROOT
     subprocess.run(command, cwd=repo_root, check=True)
 
 
+def profile_browse_sizer(benchmark_dir: Path) -> tuple[dict, float, int]:
+    """Run the metadata-only Browse sizer and return result, time, and peak memory."""
+    tracemalloc.start()
+    started = time.perf_counter()
+    try:
+        sizer = DirectorySizer()
+        result = sizer.scan(sizer.prepare(str(benchmark_dir)))
+        elapsed = time.perf_counter() - started
+        _, peak_bytes = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    return result, elapsed, peak_bytes
+
+
 def run_profile(
     benchmark_dir: Path = DEFAULT_BENCHMARK_DIR,
     file_count: int = DEFAULT_FILE_COUNT,
@@ -343,6 +367,11 @@ def run_profile(
         )
         setup_seconds = time.perf_counter() - setup_start
 
+        print("Profiling metadata-only Browse sizing...", flush=True)
+        browse_result, browse_seconds, browse_peak_bytes = profile_browse_sizer(
+            benchmark_dir
+        )
+
         report_start = time.perf_counter()
         run_report(benchmark_dir, age_months, repo_root=repo_root)
         report_seconds = time.perf_counter() - report_start
@@ -358,6 +387,13 @@ def run_profile(
         stats=stats,
         initial_cleanup_seconds=initial_cleanup_seconds,
         setup_seconds=setup_seconds,
+        browse_seconds=browse_seconds,
+        browse_peak_bytes=browse_peak_bytes,
+        browse_immediate_entries=len(browse_result["entries"]),
+        browse_file_count=int(browse_result["file_count"]),
+        browse_directory_count=int(browse_result["directory_count"]),
+        browse_logical_bytes=int(browse_result["logical_bytes"]),
+        browse_allocated_bytes=int(browse_result["allocated_bytes"]),
         report_seconds=report_seconds,
         final_cleanup_seconds=final_cleanup_seconds,
         kept_benchmark=keep_benchmark,
@@ -375,6 +411,13 @@ def print_summary(result: ProfileResult) -> None:
     print(f"Cache-like files:       {result.stats.cache_file_count:,}")
     print(f"Initial cleanup time:   {result.initial_cleanup_seconds:.2f}s")
     print(f"Setup time:             {result.setup_seconds:.2f}s")
+    print(f"Browse sizing time:     {result.browse_seconds:.2f}s")
+    print(f"Browse peak memory:     {result.browse_peak_bytes:,} bytes")
+    print(f"Browse immediate rows:  {result.browse_immediate_entries:,}")
+    print(f"Browse files measured:  {result.browse_file_count:,}")
+    print(f"Browse folders measured: {result.browse_directory_count:,}")
+    print(f"Browse logical bytes:   {result.browse_logical_bytes:,}")
+    print(f"Browse allocated bytes: {result.browse_allocated_bytes:,}")
     print(f"Report generation time: {result.report_seconds:.2f}s")
     print(f"Final cleanup time:     {result.final_cleanup_seconds:.2f}s")
     print(f"Benchmark kept:         {'yes' if result.kept_benchmark else 'no'}")

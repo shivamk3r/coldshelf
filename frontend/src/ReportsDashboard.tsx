@@ -106,12 +106,14 @@ export function ReportsDashboard({
   token,
   intent,
   onOpenHelp,
-  onJobsChanged
+  onJobsChanged,
+  onFilesystemChanged = () => undefined
 }: {
   token: string;
   intent: ReportIntent;
   onOpenHelp: (article?: string) => void;
   onJobsChanged: (count: number) => void;
+  onFilesystemChanged?: () => void;
 }) {
   const [scanPath, setScanPath] = useState("");
   const [ageMonths, setAgeMonths] = useState(6);
@@ -303,6 +305,7 @@ export function ReportsDashboard({
           });
       setLastResult(result);
       setMutationComplete(true);
+      onFilesystemChanged();
       if (action === "clean") {
         setCleanPreview(null);
         setCleanPhrase("");

@@ -79,6 +79,78 @@ class DirectoryListResponse(BaseModel):
     directories: List[DirectoryLocation]
 
 
+class BrowseScanCreateRequest(BaseModel):
+    path: Optional[str] = None
+
+
+class BrowseEntryResponse(BaseModel):
+    name: str
+    path: str
+    kind: Literal["directory", "file", "symlink", "other"]
+    hidden: bool
+    readable: bool
+    writable: bool
+    symlink: bool
+    mount_boundary: bool
+    logical_bytes: Optional[int] = Field(default=None, ge=0)
+    allocated_bytes: Optional[int] = Field(default=None, ge=0)
+    allocation_fallback_count: int = Field(ge=0)
+    file_count: int = Field(ge=0)
+    directory_count: int = Field(ge=0)
+    error_count: int = Field(ge=0)
+    skipped_mount_count: int = Field(ge=0)
+    size_state: Literal["pending", "complete", "partial", "unavailable", "boundary"]
+    protection_eligible: bool
+    protection_blocker: Optional[str] = None
+
+
+class BrowseJobResponse(BaseModel):
+    id: str
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
+    path: str
+    created_at: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    error: Optional[str] = None
+    progress_percent: float = Field(ge=0, le=100)
+    progress_message: str
+    files_scanned: int = Field(ge=0)
+    directories_scanned: int = Field(ge=0)
+    completed_entries: int = Field(ge=0)
+    total_entries: int = Field(ge=0)
+    cancel_requested: bool
+
+
+class BrowseListingResponse(BaseModel):
+    current_path: str
+    parent_path: Optional[str] = None
+    roots: List[DirectoryLocation]
+    entries: List[BrowseEntryResponse]
+
+
+class BrowseScanCreateResponse(BaseModel):
+    scan: BrowseJobResponse
+    listing: BrowseListingResponse
+
+
+class BrowseResultResponse(BaseModel):
+    current_path: str
+    parent_path: Optional[str] = None
+    roots: List[DirectoryLocation]
+    entries: List[BrowseEntryResponse]
+    logical_bytes: int = Field(ge=0)
+    allocated_bytes: int = Field(ge=0)
+    file_count: int = Field(ge=0)
+    directory_count: int = Field(ge=0)
+    hidden_entry_count: int = Field(ge=0)
+    hidden_logical_bytes: int = Field(ge=0)
+    hidden_allocated_bytes: int = Field(ge=0)
+    allocation_fallback_count: int = Field(ge=0)
+    error_count: int = Field(ge=0)
+    errors: List[str]
+    measured_at: str
+
+
 class ArchiveTargetInfo(BaseModel):
     name: str
     path: str

@@ -1,11 +1,14 @@
 # Profiling Report Generation
 
 Use `scripts/profile_report_generation.py` to measure how long the `full-report`
-command takes against a generated benchmark dataset.
+command and metadata-only Browse sizer take against a generated benchmark
+dataset.
 
-This profiling workflow targets the CLI report pipeline. It does not exercise
-the FastAPI web server, SQLite job queue, Server-Sent Events, or React
-dashboard.
+This profiling workflow targets the CLI report pipeline and the core
+`DirectorySizer`. It reports Browse traversal time, peak traced memory,
+immediate-row count, recursive file/folder counts, and logical/allocated bytes.
+It does not exercise the FastAPI web server, shared job queue, Server-Sent
+Events, or React dashboard.
 
 ## Standard Run
 
@@ -16,7 +19,8 @@ uv run python scripts/profile_report_generation.py
 ```
 
 By default, the script owns `downloads/benchmark`, deletes any existing contents,
-generates 1,000,000 files under a 100 x 100 directory layout, runs:
+generates 1,000,000 files under a 100 x 100 directory layout, profiles the
+Browse sizer, runs:
 
 ```bash
 uv run python -m disk_space_manager full-report --path downloads/benchmark --age-months 6

@@ -66,12 +66,24 @@ def browse_directories(path: Optional[str], show_hidden: bool = False) -> Dict[s
         raise ServiceError(f"Folder cannot be listed: {current}") from exc
     directories.sort(key=lambda item: (not item["readable"], item["name"].casefold()))
 
+    parent = current.parent if current.parent != current else None
+    return {
+        "current_path": str(current),
+        "parent_path": str(parent) if parent else None,
+        "roots": filesystem_roots(),
+        "directories": directories,
+    }
+
+
+def filesystem_roots() -> List[Dict[str, Any]]:
+    """Return shared Home, Computer, and detected-drive browse shortcuts."""
+    home = Path.home().resolve()
     roots: List[Dict[str, Any]] = [
         {
             "name": "Home",
-            "path": str(Path.home()),
+            "path": str(home),
             "kind": "home",
-            "readable": True,
+            "readable": os.access(home, os.R_OK | os.X_OK),
             "symlink": False,
         },
         {
@@ -92,14 +104,7 @@ def browse_directories(path: Optional[str], show_hidden: bool = False) -> Dict[s
                 "symlink": False,
             }
         )
-    deduplicated_roots = list({item["path"]: item for item in roots}.values())
-    parent = current.parent if current.parent != current else None
-    return {
-        "current_path": str(current),
-        "parent_path": str(parent) if parent else None,
-        "roots": deduplicated_roots,
-        "directories": directories,
-    }
+    return list({item["path"]: item for item in roots}.values())
 
 
 def available_archive_targets() -> Dict[str, Any]:

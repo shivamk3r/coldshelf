@@ -25,6 +25,23 @@ const ARTICLES: HelpArticle[] = [
     notes: ["The server binds to 127.0.0.1 by default. Network mode should be enabled only intentionally."]
   },
   {
+    id: "browse",
+    category: "Browse",
+    title: "Browse folders by size",
+    summary: "Measure one filesystem level at a time and start a safe protected offload for inactive folders.",
+    steps: [
+      "Open Browse. The home folder is selected by default, and every immediate file and folder is listed.",
+      "Wait for recursive folder sizing to finish. On-disk size is sorted largest first; logical size shows file content length.",
+      "Open a folder name to navigate deeper. Hidden items stay included in totals even when their rows are hidden.",
+      "Choose Protect & offload on an eligible folder, then complete recovery-key, replica, verification, preview, and eviction steps in Protected folders."
+    ],
+    notes: [
+      "Browse never reads file contents or changes files.",
+      "Symbolic links and nested mounted filesystems are not followed.",
+      "Allocated size is advisory: APFS clones, snapshots, hard links, compression, permissions, and skipped mounts can make it differ from macOS storage usage or reclaimable space."
+    ]
+  },
+  {
     id: "reports",
     category: "Reports",
     title: "Analyze disk usage",
@@ -141,10 +158,11 @@ const ARTICLES: HelpArticle[] = [
   }
 ];
 
-export function HelpCenter({ initialArticle = "start", onOpenReports, onOpenProtection }: {
+export function HelpCenter({ initialArticle = "start", onOpenReports, onOpenProtection, onOpenBrowse = () => undefined }: {
   initialArticle?: string;
   onOpenReports: () => void;
   onOpenProtection: () => void;
+  onOpenBrowse?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [activeId, setActiveId] = useState(initialArticle);
@@ -214,6 +232,9 @@ export function HelpCenter({ initialArticle = "start", onOpenReports, onOpenProt
               ) : null}
               {active.category === "Protected folders" || active.category === "Recovery" ? (
                 <button className="primary-inline" onClick={onOpenProtection}>Open protected folders</button>
+              ) : null}
+              {active.category === "Browse" ? (
+                <button className="primary-inline" onClick={onOpenBrowse}>Open Browse</button>
               ) : null}
             </div>
           </article>
