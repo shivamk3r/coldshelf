@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from disk_space_manager.web.app import create_app
-from disk_space_manager.web.repository import WebRepository
-from disk_space_manager.protection.repository import ProtectionRepository
+from coldshelf.web.app import create_app
+from coldshelf.web.repository import WebRepository
+from coldshelf.protection.repository import ProtectionRepository
 
 
 def _auth(token):
@@ -102,7 +102,7 @@ def test_directory_browser_reports_missing_and_unreadable_paths(tmp_path, monkey
 
     real_access = os.access
     monkeypatch.setattr(
-        "disk_space_manager.web.services.os.access",
+        "coldshelf.web.services.os.access",
         lambda path, mode: False
         if Path(path).resolve() == source.resolve()
         else real_access(path, mode),
@@ -196,7 +196,7 @@ def test_browse_scan_rejects_missing_paths_and_unfinished_results(tmp_path):
 
 def test_archive_target_discovery_returns_space_and_recommendation(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "disk_space_manager.web.services._detected_archive_drives",
+        "coldshelf.web.services._detected_archive_drives",
         lambda: [
             {
                 "name": "Backup",
@@ -228,7 +228,7 @@ def test_archive_target_discovery_returns_space_and_recommendation(tmp_path, mon
 
 def test_primary_storage_returns_capacity_for_home_filesystem(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "disk_space_manager.web.services.shutil.disk_usage",
+        "coldshelf.web.services.shutil.disk_usage",
         lambda path: SimpleNamespace(
             total=1_000_000,
             used=625_000,
@@ -254,7 +254,7 @@ def test_primary_storage_failure_is_sanitized(tmp_path, monkeypatch):
         raise OSError("sensitive operating-system detail")
 
     monkeypatch.setattr(
-        "disk_space_manager.web.services.shutil.disk_usage",
+        "coldshelf.web.services.shutil.disk_usage",
         fail_disk_usage,
     )
     app = create_app(repository=WebRepository(tmp_path / "web.sqlite3"), token="secret")
@@ -270,7 +270,7 @@ def test_primary_storage_failure_is_sanitized(tmp_path, monkeypatch):
 
 
 def test_protection_preflight_explains_unsupported_platform(tmp_path, monkeypatch):
-    monkeypatch.setattr("disk_space_manager.web.app.platform_module.system", lambda: "Linux")
+    monkeypatch.setattr("coldshelf.web.app.platform_module.system", lambda: "Linux")
     app = create_app(repository=WebRepository(tmp_path / "web.sqlite3"), token="secret")
     client = TestClient(app)
 
@@ -287,7 +287,7 @@ def test_protection_preflight_explains_unsupported_platform(tmp_path, monkeypatc
 
 
 def test_report_job_and_dry_run_clean_action(tmp_path, monkeypatch):
-    monkeypatch.setattr("disk_space_manager.executor.ACTION_LOG_FILE", tmp_path / "actions.log")
+    monkeypatch.setattr("coldshelf.executor.ACTION_LOG_FILE", tmp_path / "actions.log")
     source = tmp_path / "source"
     source.mkdir()
     (source / "cache.tmp").write_text("cache")
@@ -349,7 +349,7 @@ def test_report_job_and_dry_run_clean_action(tmp_path, monkeypatch):
 
 
 def test_dry_run_archive_action_uses_candidate_ids(tmp_path, monkeypatch):
-    monkeypatch.setattr("disk_space_manager.executor.ACTION_LOG_FILE", tmp_path / "actions.log")
+    monkeypatch.setattr("coldshelf.executor.ACTION_LOG_FILE", tmp_path / "actions.log")
     source = tmp_path / "source"
     archive_target = tmp_path / "archive"
     source.mkdir()

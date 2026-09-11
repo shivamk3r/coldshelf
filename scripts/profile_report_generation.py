@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from disk_space_manager.directory_sizer import DirectorySizer
+from coldshelf.directory_sizer import DirectorySizer
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -296,7 +296,7 @@ def run_report(benchmark_dir: Path, age_months: int, repo_root: Path = REPO_ROOT
     command = [
         sys.executable,
         "-m",
-        "disk_space_manager",
+        "coldshelf",
         "full-report",
         "--path",
         str(benchmark_dir),

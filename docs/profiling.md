@@ -23,7 +23,7 @@ generates 1,000,000 files under a 100 x 100 directory layout, profiles the
 Browse sizer, runs:
 
 ```bash
-uv run python -m disk_space_manager full-report --path downloads/benchmark --age-months 6
+uv run python -m coldshelf full-report --path downloads/benchmark --age-months 6
 ```
 
 and then deletes `downloads/benchmark` in cleanup.

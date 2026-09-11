@@ -5,7 +5,7 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
-from disk_space_manager.config import DEFAULT_AGE_THRESHOLD_MONTHS
+from coldshelf.config import DEFAULT_AGE_THRESHOLD_MONTHS
 
 
 class JobCreateRequest(BaseModel):

@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import Header, HTTPException, Query, status
 
 
+# Stable on-disk name: preserve existing authenticated dashboard sessions.
 DEFAULT_TOKEN_FILE = Path.home() / ".disk-space-manager-web-token"
 
 
@@ -19,7 +20,9 @@ def get_or_create_token(
     if configured_token:
         return configured_token
 
-    env_token = os.environ.get("DISK_SPACE_MANAGER_WEB_TOKEN")
+    env_token = os.environ.get("COLDSHELF_WEB_TOKEN") or os.environ.get(
+        "DISK_SPACE_MANAGER_WEB_TOKEN"
+    )
     if env_token:
         return env_token
 

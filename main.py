@@ -11,7 +11,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if SRC_DIR.exists():
     sys.path.insert(0, str(SRC_DIR))
 
-from disk_space_manager.cli import cli
+from coldshelf.cli import cli
 
 
 if __name__ == "__main__":

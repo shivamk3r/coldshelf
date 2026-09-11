@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from disk_space_manager import drive_detector
+from coldshelf import drive_detector
 
 
 def test_parse_linux_mountinfo_detects_common_external_mounts():

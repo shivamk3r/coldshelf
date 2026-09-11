@@ -1,4 +1,4 @@
-"""Command entrypoint for the Disk Space Manager web app."""
+"""Command entrypoint for the coldshelf web app."""
 
 import os
 import subprocess
@@ -14,7 +14,7 @@ import click
 import uvicorn
 
 from .app import create_app
-from disk_space_manager.protection.repository import (
+from coldshelf.protection.repository import (
     DEFAULT_PROTECTION_DB_PATH,
     ProtectionRepository,
 )
@@ -91,7 +91,7 @@ def main(
             target=_open_when_ready,
             args=(server, dashboard_url, webbrowser.open),
             daemon=True,
-            name="disk-space-manager-browser",
+            name="coldshelf-browser",
         ).start()
     try:
         server.run()
@@ -171,8 +171,8 @@ def _start_frontend_dev(
     token: str,
 ) -> subprocess.Popen:
     env = os.environ.copy()
-    env["VITE_DSM_API_BASE"] = f"http://{_url_host(backend_host)}:{backend_port}"
-    env["VITE_DSM_TOKEN"] = token
+    env["VITE_COLDSHELF_API_BASE"] = f"http://{_url_host(backend_host)}:{backend_port}"
+    env["VITE_COLDSHELF_TOKEN"] = token
     cmd = [
         "npm",
         "run",

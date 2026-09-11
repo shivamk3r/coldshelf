@@ -2,15 +2,15 @@
 
 ## Overview
 
-Disk Space Manager is packaged under `src/disk_space_manager` with two public
+coldshelf is packaged under `src/coldshelf` with two public
 entrypoints: the Click CLI and the optional FastAPI web dashboard. The
 repository root stays small: `main.py` is only a compatibility shim for
 `uv run python main.py ...`, while the preferred interfaces are:
 
 ```bash
-uv run disk-space-manager ...
-uv run python -m disk_space_manager ...
-uv run disk-space-manager-web
+uv run coldshelf ...
+uv run python -m coldshelf ...
+uv run coldshelf-web
 ```
 
 The CLI runtime pipeline is still intentionally direct:
@@ -40,7 +40,7 @@ persistence, and file mutation each have clear module ownership.
 
 ## Runtime Package
 
-### `src/disk_space_manager/cli.py`
+### `src/coldshelf/cli.py`
 
 Defines the Click command group, global `--dry-run` flag, and command options
 for `analyze`, `clean`, `archive`, and `full-report`.
@@ -49,7 +49,7 @@ This module should stay thin. It parses CLI inputs and delegates to
 `workflows.py`; it should not contain scanning, rendering, archive selection, or
 file-mutation logic.
 
-### `src/disk_space_manager/workflows.py`
+### `src/coldshelf/workflows.py`
 
 Coordinates command behavior:
 
@@ -66,7 +66,7 @@ Coordinates command behavior:
 Workflow functions are command-sized orchestration units. Domain details should
 stay in scanner, analyzer, executor, or archive target modules.
 
-### `src/disk_space_manager/ui.py`
+### `src/coldshelf/ui.py`
 
 Owns terminal presentation and prompts:
 
@@ -78,7 +78,7 @@ Owns terminal presentation and prompts:
 
 No filesystem mutation should happen in this module.
 
-### `src/disk_space_manager/archive_targets.py`
+### `src/coldshelf/archive_targets.py`
 
 Resolves archive destinations and returns an `ArchiveTarget` dataclass with:
 
@@ -94,7 +94,7 @@ Target precedence is deliberate and must remain:
 2. `--external-path`
 3. Auto-detected external drive
 
-### `src/disk_space_manager/scanner.py`
+### `src/coldshelf/scanner.py`
 
 Owns filesystem traversal. `DiskScanner.scan()` returns:
 
@@ -116,7 +116,7 @@ Important implementation details:
 `get_largest_directories()` and `get_largest_files()` operate on the scanner's
 in-memory results after a scan.
 
-### `src/disk_space_manager/directory_sizer.py`
+### `src/coldshelf/directory_sizer.py`
 
 Owns metadata-only Browse traversal. `prepare()` validates and canonicalizes a
 path and returns immediate names plus direct-file sizes. `scan()` recursively
@@ -125,7 +125,7 @@ objects. It uses allocated block metadata with a counted logical-size fallback,
 does not follow symbolic links or cross `st_dev` boundaries, keeps partial
 totals and capped errors, and supports cooperative cancellation.
 
-### `src/disk_space_manager/analyzer.py`
+### `src/coldshelf/analyzer.py`
 
 Contains `FileAnalyzer`, which operates on scanner file dictionaries.
 
@@ -143,7 +143,7 @@ Primary responsibilities:
 
 Performance-oriented constants are prepared at import time.
 
-### `src/disk_space_manager/duplicates.py`
+### `src/coldshelf/duplicates.py`
 
 Contains `DuplicateDetector`, which operates on scanner file dictionaries.
 
@@ -159,7 +159,7 @@ Primary responsibilities:
 This module is read-only and best-effort. Decode failures, unsupported formats,
 and over-cap files are skipped rather than failing the report.
 
-### `src/disk_space_manager/executor.py`
+### `src/coldshelf/executor.py`
 
 Contains `ActionExecutor`, the only module that performs destructive user-file
 operations.
@@ -178,7 +178,7 @@ Primary responsibilities:
 Confirmation is handled before executor methods are called. The executor keeps
 the actual mutation and action-log behavior centralized.
 
-### `src/disk_space_manager/drive_detector.py`
+### `src/coldshelf/drive_detector.py`
 
 Detects writable external volumes:
 
@@ -187,7 +187,7 @@ Detects writable external volumes:
   considers common mount roots such as `/media`, `/mnt`, and `/run/media`.
 - Manual external paths are validated for existence and writability.
 
-### `src/disk_space_manager/progress_estimator.py`
+### `src/coldshelf/progress_estimator.py`
 
 Converts `ScanProgress` snapshots into `ScanEstimate` objects suitable for
 Rich's determinate progress bars.
@@ -197,7 +197,7 @@ ratio of completed to discovered directories, smooths changes, keeps visible
 remaining work while directories remain, and snaps to the actual total when the
 scan finishes.
 
-### `src/disk_space_manager/config.py`
+### `src/coldshelf/config.py`
 
 Contains repository-wide constants:
 
@@ -213,17 +213,17 @@ Contains repository-wide constants:
 Changes here can materially affect safety, scan scope, and user trust, so pair
 them with focused tests.
 
-### `src/disk_space_manager/utils.py`
+### `src/coldshelf/utils.py`
 
 Contains shared helpers for size formatting, metadata reads, excluded path
 checks, directory sizing, available-space checks, safe deletion, link/copy
 helpers, and archive target path construction.
 
-### `src/disk_space_manager/web/`
+### `src/coldshelf/web/`
 
 Contains the optional FastAPI application and built React assets.
 
-- `server.py` exposes `disk-space-manager-web`, prints the tokenized URL, opens
+- `server.py` exposes `coldshelf-web`, prints the tokenized URL, opens
   it after Uvicorn is ready by default, and can start Vite in `--dev` mode. It
   owns web command options for host, port, frontend port, SQLite path, token
   override, and `--open/--no-open`.
@@ -272,9 +272,9 @@ Contains the React/Vite dashboard source.
 - `src/api.ts` centralizes token-aware API calls and SSE subscription setup.
 - `src/types.ts` mirrors the JSON structures returned by the FastAPI API.
 - `vite.config.ts` builds production assets into
-  `src/disk_space_manager/web/static/`.
+  `src/coldshelf/web/static/`.
 
-The checked-in static build is what `disk-space-manager-web` serves outside
+The checked-in static build is what `coldshelf-web` serves outside
 `--dev` mode. When frontend source changes, rebuild the assets with
 `npm run build` from `frontend/`.
 
@@ -377,10 +377,10 @@ This command is read-only.
 
 This command is read-only.
 
-### `disk-space-manager-web`
+### `coldshelf-web`
 
 1. Resolve or create an API token from `--token`,
-   `DISK_SPACE_MANAGER_WEB_TOKEN`, or `~/.disk-space-manager-web-token`.
+   `COLDSHELF_WEB_TOKEN` (with `DISK_SPACE_MANAGER_WEB_TOKEN` as a fallback), or `~/.disk-space-manager-web-token`.
 2. Open the SQLite repository at `--db-path`, defaulting to
    `~/.disk-space-manager-web.sqlite3`.
 3. In normal mode, create the FastAPI app and serve packaged React assets.
@@ -463,7 +463,7 @@ generated static assets.
 
 `scripts/profile_report_generation.py` is the performance harness. It owns and
 recreates `downloads/benchmark`, generates deterministic sparse-file datasets,
-profiles `DirectorySizer`, runs `python -m disk_space_manager full-report`, and
+profiles `DirectorySizer`, runs `python -m coldshelf full-report`, and
 removes the benchmark tree unless `--keep-benchmark` is specified.
 
 ## Extension Points

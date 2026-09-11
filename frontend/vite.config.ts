@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: "../src/disk_space_manager/web/static",
+    outDir: "../src/coldshelf/web/static",
     emptyOutDir: true,
     rollupOptions: {
       output: {

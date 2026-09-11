@@ -1,4 +1,4 @@
-"""Command workflow orchestration for Disk Space Manager."""
+"""Command workflow orchestration for coldshelf."""
 
 import os
 import sys

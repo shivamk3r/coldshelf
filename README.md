@@ -1,4 +1,4 @@
-# Disk Space Manager
+# coldshelf
 
 A Python disk maintenance application for Unix-like systems. It can be used as
 a terminal CLI or as an optional FastAPI + React web dashboard for visual disk
@@ -39,13 +39,28 @@ CLI.
   and common Linux mount locations.
 - **Action Logging**: Logs delete and archive actions for review and audit.
 
+## Upgrading from Disk Space Manager
+
+The project is now **coldshelf**. Use `uv run coldshelf` for the CLI,
+`uv run coldshelf-web` for the dashboard, or `uv run python -m coldshelf`.
+The old `disk-space-manager` and `disk-space-manager-web` commands remain
+compatibility aliases. Python imports now use `coldshelf`.
+
+Existing protected folders and offloaded files require no migration or new
+backup. The local catalog, Keychain service, disk repository paths, snapshot
+tags, and staging identifiers deliberately retain their original names. Do
+not rename or delete them to match the new branding. The same recovery key
+and either healthy enrolled disk still work with **Restore** and **Recover**.
+Report history, the action log, and dashboard authentication are preserved too.
+See [rebrand and recovery compatibility](docs/rebranding.md) for exact details.
+
 ## Installation
 
 1. Clone this repository:
 
 ```bash
-git clone <repository-url>
-cd disk-space-manager
+git clone https://github.com/shivamk3r/coldshelf.git
+cd coldshelf
 ```
 
 2. Sync dependencies:
@@ -67,7 +82,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 The preferred command is the installed package script:
 
 ```bash
-uv run disk-space-manager --help
+uv run coldshelf --help
 ```
 
 `uv run python main.py ...` is still available as a compatibility shim when
@@ -78,7 +93,7 @@ running from a checkout.
 Start the packaged FastAPI and React application with one command:
 
 ```bash
-uv run disk-space-manager-web
+uv run coldshelf-web
 ```
 
 The server binds to `127.0.0.1` by default, prints its authenticated URL, waits
@@ -91,17 +106,18 @@ frontend from the Python package.
 Useful web server options:
 
 ```bash
-uv run disk-space-manager-web --host 127.0.0.1 --port 38765
-uv run disk-space-manager-web --db-path ~/.disk-space-manager-web.sqlite3
-uv run disk-space-manager-web --token <token>
-uv run disk-space-manager-web --no-open
+uv run coldshelf-web --host 127.0.0.1 --port 38765
+uv run coldshelf-web --db-path ~/.disk-space-manager-web.sqlite3
+uv run coldshelf-web --token <token>
+uv run coldshelf-web --no-open
 ```
 
 Packaged mode uses only port `38765` by default: FastAPI serves both the API
 and the built React frontend from the same listener. Use `--port` to override
 it if that port is unavailable.
 
-If no token is provided, the server reads `DISK_SPACE_MANAGER_WEB_TOKEN`, then
+If no token is provided, the server reads `COLDSHELF_WEB_TOKEN` (or the legacy
+`DISK_SPACE_MANAGER_WEB_TOKEN`), then
 falls back to `~/.disk-space-manager-web-token`, creating that file when
 needed. API requests require the token through the frontend URL, `Authorization:
 Bearer <token>`, `X-API-Token`, or the `token` query parameter used by the
@@ -110,7 +126,7 @@ Server-Sent Events stream.
 For frontend/backend development, run:
 
 ```bash
-uv run disk-space-manager-web --dev
+uv run coldshelf-web --dev
 ```
 
 Development mode starts FastAPI and the Vite frontend together, using backend
@@ -221,13 +237,13 @@ Create a set, paste the one-time recovery key back when prompted, then enroll,
 index, and back up one mounted disk at a time:
 
 ```bash
-uv run disk-space-manager protect create --name "Large Files" \
+uv run coldshelf protect create --name "Large Files" \
   --path /Users/you/Archives/large-files --required-copies 2
-uv run disk-space-manager protect volumes
-uv run disk-space-manager protect enroll "Large Files" --mount-path /Volumes/HDD1
-uv run disk-space-manager protect index "Large Files"
-uv run disk-space-manager protect status "Large Files"
-uv run disk-space-manager protect backup "Large Files" --drive-id <HDD1-DRIVE-ID>
+uv run coldshelf protect volumes
+uv run coldshelf protect enroll "Large Files" --mount-path /Volumes/HDD1
+uv run coldshelf protect index "Large Files"
+uv run coldshelf protect status "Large Files"
+uv run coldshelf protect backup "Large Files" --drive-id <HDD1-DRIVE-ID>
 ```
 
 Disconnect HDD1, connect and enroll HDD2, and repeat `backup` with HDD2's drive
@@ -238,9 +254,9 @@ Eviction always starts with a dry-run and uses catalog file IDs, not arbitrary
 paths:
 
 ```bash
-uv run disk-space-manager --dry-run protect evict "Large Files" --file-id <FILE-ID>
-uv run disk-space-manager protect evict "Large Files" --file-id <FILE-ID>
-uv run disk-space-manager protect restore "Large Files" --file-id <FILE-ID> \
+uv run coldshelf --dry-run protect evict "Large Files" --file-id <FILE-ID>
+uv run coldshelf protect evict "Large Files" --file-id <FILE-ID>
+uv run coldshelf protect restore "Large Files" --file-id <FILE-ID> \
   --drive-id <CONNECTED-DRIVE-ID>
 ```
 
@@ -259,13 +275,13 @@ folder; registered protected paths are excluded from legacy mutations.
 Scan and analyze disk usage without making changes:
 
 ```bash
-uv run disk-space-manager analyze
+uv run coldshelf analyze
 ```
 
 Scan a specific directory:
 
 ```bash
-uv run disk-space-manager analyze --path /path/to/directory
+uv run coldshelf analyze --path /path/to/directory
 ```
 
 ### Clean Cache Files
@@ -273,13 +289,13 @@ uv run disk-space-manager analyze --path /path/to/directory
 Identify and remove cache files after confirmation:
 
 ```bash
-uv run disk-space-manager clean
+uv run coldshelf clean
 ```
 
 With a custom age threshold:
 
 ```bash
-uv run disk-space-manager clean --age-months 3
+uv run coldshelf clean --age-months 3
 ```
 
 ### Archive Old Files
@@ -287,26 +303,26 @@ uv run disk-space-manager clean --age-months 3
 Move old files to an auto-detected external drive:
 
 ```bash
-uv run disk-space-manager archive
+uv run coldshelf archive
 ```
 
 Archive to a local folder:
 
 ```bash
-uv run disk-space-manager archive --target-path /path/to/archive/folder
+uv run coldshelf archive --target-path /path/to/archive/folder
 ```
 
 Archive to a specific mounted external drive:
 
 ```bash
-uv run disk-space-manager archive --external-path /Volumes/MyDrive
-uv run disk-space-manager archive --external-path /media/$USER/MyDrive
+uv run coldshelf archive --external-path /Volumes/MyDrive
+uv run coldshelf archive --external-path /media/$USER/MyDrive
 ```
 
 With a custom age threshold:
 
 ```bash
-uv run disk-space-manager archive --age-months 12 --target-path ./my_archive
+uv run coldshelf archive --age-months 12 --target-path ./my_archive
 ```
 
 ### Full Report
@@ -314,15 +330,15 @@ uv run disk-space-manager archive --age-months 12 --target-path ./my_archive
 Generate a comprehensive read-only report:
 
 ```bash
-uv run disk-space-manager full-report
+uv run coldshelf full-report
 ```
 
 Duplicate and near-duplicate checks run by default. Skip both duplicate phases,
 or keep exact duplicates while skipping slower near-duplicate checks:
 
 ```bash
-uv run disk-space-manager full-report --no-duplicates
-uv run disk-space-manager full-report --no-near-duplicates
+uv run coldshelf full-report --no-duplicates
+uv run coldshelf full-report --no-near-duplicates
 ```
 
 ### Dry Run Mode
@@ -330,8 +346,8 @@ uv run disk-space-manager full-report --no-near-duplicates
 Preview mutating operations without changing files:
 
 ```bash
-uv run disk-space-manager --dry-run clean
-uv run disk-space-manager --dry-run archive
+uv run coldshelf --dry-run clean
+uv run coldshelf --dry-run archive
 ```
 
 ## Commands
@@ -342,7 +358,7 @@ uv run disk-space-manager --dry-run archive
 - `full-report` - Generate a comprehensive analysis report.
 - `protect` - Create, enroll, index, back up, verify, evict, restore, or recover
   a replicated protected folder.
-- `disk-space-manager-web` - Start the web dashboard and API.
+- `coldshelf-web` - Start the web dashboard and API.
 
 ## Options
 
@@ -446,7 +462,7 @@ You can always bypass detection with `--target-path` or `--external-path`.
 
 ## Configuration
 
-Default settings live in `src/disk_space_manager/config.py`:
+Default settings live in `src/coldshelf/config.py`:
 
 - `DEFAULT_AGE_THRESHOLD_MONTHS`: Default age for old files.
 - `CACHE_DIRECTORY_PATTERNS`: Patterns for cache directories.
@@ -497,23 +513,23 @@ Restic output, recovery keys, and API tokens are never added to these records.
 
 ```text
 main.py                                   Checkout compatibility shim
-src/disk_space_manager/cli.py             Click command declarations
-src/disk_space_manager/workflows.py       CLI workflow orchestration
-src/disk_space_manager/ui.py              Rich terminal presentation
-src/disk_space_manager/archive_targets.py Archive target resolution
-src/disk_space_manager/scanner.py         Filesystem scanning
-src/disk_space_manager/directory_sizer.py Metadata-only Browse sizing
-src/disk_space_manager/analyzer.py        File categorization and estimates
-src/disk_space_manager/duplicates.py      Duplicate and near-duplicate analysis
-src/disk_space_manager/executor.py        File operations and logging
-src/disk_space_manager/protection/        Catalog, Keychain, Restic, volumes, safety
-src/disk_space_manager/drive_detector.py  External drive auto-detection
-src/disk_space_manager/web/               FastAPI app, services, jobs, SQLite
-src/disk_space_manager/web/deletion_jobs.py Browse deletion policy and scheduler
-src/disk_space_manager/web/static/        Packaged React production build
+src/coldshelf/cli.py             Click command declarations
+src/coldshelf/workflows.py       CLI workflow orchestration
+src/coldshelf/ui.py              Rich terminal presentation
+src/coldshelf/archive_targets.py Archive target resolution
+src/coldshelf/scanner.py         Filesystem scanning
+src/coldshelf/directory_sizer.py Metadata-only Browse sizing
+src/coldshelf/analyzer.py        File categorization and estimates
+src/coldshelf/duplicates.py      Duplicate and near-duplicate analysis
+src/coldshelf/executor.py        File operations and logging
+src/coldshelf/protection/        Catalog, Keychain, Restic, volumes, safety
+src/coldshelf/drive_detector.py  External drive auto-detection
+src/coldshelf/web/               FastAPI app, services, jobs, SQLite
+src/coldshelf/web/deletion_jobs.py Browse deletion policy and scheduler
+src/coldshelf/web/static/        Packaged React production build
 frontend/                                 React/Vite frontend source
-src/disk_space_manager/config.py          Configuration constants
-src/disk_space_manager/utils.py           Shared utilities
+src/coldshelf/config.py          Configuration constants
+src/coldshelf/utils.py           Shared utilities
 ```
 
 ## Agent Context

@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from disk_space_manager.web.repository import WebRepository
-from disk_space_manager.web.schemas import JobCreateRequest
+from coldshelf.web.repository import WebRepository
+from coldshelf.web.schemas import JobCreateRequest
 
 
 def test_repository_persists_jobs_reports_candidates_and_actions(tmp_path):

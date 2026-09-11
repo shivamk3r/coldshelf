@@ -1,4 +1,4 @@
-"""Rich terminal presentation for Disk Space Manager."""
+"""Rich terminal presentation for coldshelf."""
 
 from typing import Dict, List, Optional, Tuple
 
@@ -44,8 +44,8 @@ def print_header() -> None:
     """Print application header."""
     header = """
     ╔═══════════════════════════════════════════╗
-    ║        Disk Space Manager v1.0          ║
-    ║   Clean, Analyze, and Archive Files     ║
+    ║              coldshelf v1.0               ║
+    ║     Clean, Analyze, and Archive Files     ║
     ╚═══════════════════════════════════════════╝
     """
     console.print(header, style="bold cyan")

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 
+# Keep the original catalog, replica receipts, and offloaded-file restore records.
 DEFAULT_PROTECTION_DB_PATH = Path.home() / ".disk-space-manager-protected.sqlite3"
 SCHEMA_VERSION = 2
 VERIFIED_REPLICA_STATES = frozenset({"structural_checked", "full_checked"})

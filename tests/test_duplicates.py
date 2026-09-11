@@ -7,8 +7,8 @@ import numpy as np
 import soundfile as sf
 from PIL import Image, ImageDraw
 
-from disk_space_manager.config import NEAR_DUPLICATE_TEXT_MAX_BYTES
-from disk_space_manager.duplicates import DuplicateDetector
+from coldshelf.config import NEAR_DUPLICATE_TEXT_MAX_BYTES
+from coldshelf.duplicates import DuplicateDetector
 
 
 def _file_info(path):

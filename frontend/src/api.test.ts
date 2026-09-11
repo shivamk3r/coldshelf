@@ -1,4 +1,4 @@
-import { clearToken, getStorageSummary, initialToken, openBrowseEvents, openJobEvents } from "./api";
+import { clearToken, getStorageSummary, initialToken, openBrowseEvents, openJobEvents, saveToken } from "./api";
 
 
 test("captures the startup token and immediately removes it from the visible URL", () => {
@@ -11,8 +11,21 @@ test("captures the startup token and immediately removes it from the visible URL
 
 test("disconnect clears the persisted token", () => {
   localStorage.setItem("dsm-token", "private-value");
+  localStorage.setItem("coldshelf-token", "new-private-value");
   clearToken();
   expect(localStorage.getItem("dsm-token")).toBeNull();
+  expect(localStorage.getItem("coldshelf-token")).toBeNull();
+});
+
+test("an existing dashboard session survives the coldshelf rebrand", () => {
+  window.history.replaceState({}, "", "/");
+  clearToken();
+  localStorage.setItem("dsm-token", "existing-session");
+  expect(initialToken()).toBe("existing-session");
+  saveToken("new-session");
+  expect(localStorage.getItem("dsm-token")).toBeNull();
+  expect(initialToken()).toBe("new-session");
+  clearToken();
 });
 
 

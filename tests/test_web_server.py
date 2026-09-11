@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from click.testing import CliRunner
 
-from disk_space_manager.web import server as web_server
+from coldshelf.web import server as web_server
 
 
 def test_default_ports_are_project_specific():

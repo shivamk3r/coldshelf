@@ -7,14 +7,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from disk_space_manager.protection.keychain import KeychainSecretStore
-from disk_space_manager.protection.restic import (
+from coldshelf.protection.keychain import KeychainSecretStore
+from coldshelf.protection.restic import (
     ResticError,
     ResticResult,
     ResticRunner,
     _emit_progress,
 )
-from disk_space_manager.protection.volumes import MacOSVolumeProvider
+from coldshelf.protection.volumes import MacOSVolumeProvider
 
 
 def _fake_restic_executable(tmp_path: Path) -> Path:
@@ -163,15 +163,15 @@ def test_restic_backup_exclusion_and_transfer_eta_are_forwarded(tmp_path):
 def test_keychain_abstraction_round_trip(monkeypatch):
     values = {}
     monkeypatch.setattr(
-        "disk_space_manager.protection.keychain.keyring.set_password",
+        "coldshelf.protection.keychain.keyring.set_password",
         lambda service, key, value: values.__setitem__((service, key), value),
     )
     monkeypatch.setattr(
-        "disk_space_manager.protection.keychain.keyring.get_password",
+        "coldshelf.protection.keychain.keyring.get_password",
         lambda service, key: values.get((service, key)),
     )
     monkeypatch.setattr(
-        "disk_space_manager.protection.keychain.keyring.delete_password",
+        "coldshelf.protection.keychain.keyring.delete_password",
         lambda service, key: values.pop((service, key)),
     )
     store = KeychainSecretStore("test-service")

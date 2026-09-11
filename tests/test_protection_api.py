@@ -3,10 +3,10 @@ import time
 
 from fastapi.testclient import TestClient
 
-from disk_space_manager.protection.repository import ProtectionRepository
-from disk_space_manager.protection.service import ProtectionService
-from disk_space_manager.web.app import create_app
-from disk_space_manager.web.repository import WebRepository
+from coldshelf.protection.repository import ProtectionRepository
+from coldshelf.protection.service import ProtectionService
+from coldshelf.web.app import create_app
+from coldshelf.web.repository import WebRepository
 
 from .protection_fakes import FakeRestic, FakeVolumes, MemorySecretStore, fake_volume
 
@@ -182,7 +182,7 @@ def test_authenticated_protected_folder_recovery_confirmation_catalog_and_job(tm
 
 def test_fresh_catalog_import_from_one_disk(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "disk_space_manager.executor.ACTION_LOG_FILE", tmp_path / "actions.log"
+        "coldshelf.executor.ACTION_LOG_FILE", tmp_path / "actions.log"
     )
     app, source, volume, restic, volumes = _app(tmp_path)
     with TestClient(app) as client:

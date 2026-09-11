@@ -123,13 +123,13 @@ export function App() {
         <section className="auth-panel">
           <div className="auth-mark"><HardDrive aria-hidden="true" /></div>
           <span className="eyebrow">Local disk maintenance</span>
-          <h1>Disk Space Manager</h1>
+          <h1>coldshelf</h1>
           {checkingToken ? (
             <div className="loading-inline"><Loader2 className="spin" />Connecting to the local dashboard…</div>
           ) : (
             <>
               <p>Start the server, then use its private token to connect:</p>
-              <code className="startup-command">uv run disk-space-manager-web</code>
+              <code className="startup-command">uv run coldshelf-web</code>
               {authError && <div className="alert" role="alert">{authError}</div>}
               <form
                 onSubmit={(event) => {
@@ -155,7 +155,7 @@ export function App() {
       <aside className="sidebar">
         <div className="brand-row">
           <div className="brand-icon"><HardDrive aria-hidden="true" /></div>
-          <div><h1>Disk Space Manager</h1><span>Local dashboard</span></div>
+          <div><h1>coldshelf</h1><span>Local dashboard</span></div>
         </div>
         <nav className="primary-nav" aria-label="Dashboard">
           <NavButton active={view === "home"} icon={<Home />} label="Home" onClick={() => setView("home")} />

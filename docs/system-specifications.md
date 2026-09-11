@@ -2,12 +2,12 @@
 
 ## Supported Platform and Dependencies
 
-Disk Space Manager is specified as a local Unix-like disk maintenance
+coldshelf is specified as a local Unix-like disk maintenance
 application with two supported interfaces:
 
 - A Click/Rich CLI.
 - An optional FastAPI + React web dashboard served by
-  `disk-space-manager-web`.
+  `coldshelf-web`.
 
 Runtime requirements:
 
@@ -127,7 +127,7 @@ Behavior:
 
 ## Web Command
 
-### `disk-space-manager-web`
+### `coldshelf-web`
 
 Options:
 
@@ -144,7 +144,7 @@ Options:
 Token behavior:
 
 - `--token` takes precedence.
-- If omitted, `DISK_SPACE_MANAGER_WEB_TOKEN` is used when present.
+- If omitted, `COLDSHELF_WEB_TOKEN` (with `DISK_SPACE_MANAGER_WEB_TOKEN` as a fallback) is used when present.
 - If no environment token exists, `~/.disk-space-manager-web-token` is read or
   created with mode `0600` when possible.
 - The server always prints a tokenized URL at startup. Wildcard bind hosts use
@@ -156,7 +156,7 @@ Token behavior:
 Runtime behavior:
 
 - Normal mode serves packaged React assets from
-  `src/disk_space_manager/web/static/`, so the frontend and API share the
+  `src/coldshelf/web/static/`, so the frontend and API share the
   single FastAPI port.
 - Home reads the operating system's total, used, and available capacity for the
   filesystem containing the user's home directory. It refreshes when Home is
@@ -471,7 +471,7 @@ failing `full-report` or a web report job.
 
 ## External Drive Detection Specification
 
-`src/disk_space_manager/drive_detector.py` exposes:
+`src/coldshelf/drive_detector.py` exposes:
 
 - `get_mounted_volumes()`: returns mounted volume dictionaries for the current
   platform.
@@ -634,10 +634,10 @@ npm audit --omit=dev
 Useful manual checks:
 
 ```bash
-uv run disk-space-manager full-report --path tests --age-months 6
-uv run disk-space-manager-web --help
+uv run coldshelf full-report --path tests --age-months 6
+uv run coldshelf-web --help
 uv run python main.py full-report --path tests --age-months 6
-uv run python -m disk_space_manager full-report --path tests --age-months 6
+uv run python -m coldshelf full-report --path tests --age-months 6
 uv run python scripts/profile_report_generation.py --file-count 10000 --max-bytes 50000000
 ```
 

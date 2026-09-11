@@ -1,4 +1,4 @@
-"""Run Disk Space Manager as a module."""
+"""Run coldshelf as a module."""
 
 from .cli import cli
 

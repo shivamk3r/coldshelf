@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Disk Space Manager is a local Unix-like disk maintenance application for macOS
+coldshelf is a local Unix-like disk maintenance application for macOS
 and Linux. It can run as a terminal CLI or as an optional FastAPI + React web
 dashboard. Both interfaces use the same Python core to scan a selected
 filesystem tree, report disk usage, identify removable cache-like files, find
@@ -34,7 +34,7 @@ The main workflows are:
 - Generate a comprehensive read-only report with `full-report`, including scan
   progress, cache candidates, old-file candidates, duplicate candidates, and
   potential savings.
-- Start `disk-space-manager-web` to create report jobs, watch live progress,
+- Start `coldshelf-web` to create report jobs, watch live progress,
   review charts/tables, select persisted candidates, and run dry-run or
   confirmed clean/archive actions without returning to the CLI.
 - Browse immediate files and recursively sized immediate folders, starting at
@@ -72,16 +72,16 @@ but the token must be kept private.
 
 ### CLI and Terminal Presentation
 
-`src/disk_space_manager/cli.py` owns the Click command group and command option
+`src/coldshelf/cli.py` owns the Click command group and command option
 declarations. It delegates work to `workflows.py`, keeping the command layer
 thin. `ui.py` owns Rich output, progress displays, summaries, and confirmation
 prompts. The root `main.py` is only a checkout compatibility shim.
 
 ### Web API and Frontend
 
-`src/disk_space_manager/web/` owns the optional FastAPI app:
+`src/coldshelf/web/` owns the optional FastAPI app:
 
-- `server.py` exposes the `disk-space-manager-web` command, token setup,
+- `server.py` exposes the `coldshelf-web` command, token setup,
   default host/port, database path, browser opening, and Vite dev mode.
 - `app.py` declares the HTTP API, token dependencies, SSE progress endpoint,
   and static frontend serving.
@@ -96,7 +96,7 @@ prompts. The root `main.py` is only a checkout compatibility shim.
 - `security.py` creates and validates API tokens.
 
 `frontend/` contains the React/Vite source for the dashboard. The production
-build is checked into `src/disk_space_manager/web/static/` so the packaged
+build is checked into `src/coldshelf/web/static/` so the packaged
 Python web command can serve the UI without starting Vite.
 
 The frontend uses five top-level tasks: Home, Browse, Reports, Protected
@@ -127,7 +127,7 @@ dry-run before it exposes the exact-phrase confirmation step.
 
 ### Filesystem Scanner
 
-`src/disk_space_manager/scanner.py` traverses a root path and returns file
+`src/coldshelf/scanner.py` traverses a root path and returns file
 metadata plus directory size totals. It is optimized for large trees by using
 `os.scandir`, scanning top-level subdirectories in parallel, batching progress
 events, and storing raw epoch timestamps instead of converting every timestamp
@@ -135,7 +135,7 @@ into `datetime` objects.
 
 ### Browse Directory Sizer
 
-`src/disk_space_manager/directory_sizer.py` lists immediate entries and then
+`src/coldshelf/directory_sizer.py` lists immediate entries and then
 recursively aggregates each immediate directory using metadata only. It does
 not retain descendant file objects or read file contents. Allocated bytes use
 `st_blocks × 512`, with an explicit fallback count when only `st_size` is
@@ -146,7 +146,7 @@ checks a cooperative cancellation event between directory entries.
 
 ### Analyzer
 
-`src/disk_space_manager/analyzer.py` classifies scanned file dictionaries. It
+`src/coldshelf/analyzer.py` classifies scanned file dictionaries. It
 detects cache candidates using configured Unix-like directory patterns,
 extensions, and filename markers. It detects old files using access time and a
 minimum size threshold. It also calculates summary statistics and potential
@@ -154,7 +154,7 @@ space savings.
 
 ### Duplicate Detector
 
-`src/disk_space_manager/duplicates.py` finds read-only exact duplicates and
+`src/coldshelf/duplicates.py` finds read-only exact duplicates and
 advisory near duplicates. Exact matches use streamed SHA-256 hashes for
 same-size candidates. Near matches use capped offline fingerprints for text,
 images, videos, and audio, and skip unsupported or decode-failing files without
@@ -162,7 +162,7 @@ aborting the report.
 
 ### Action Executor
 
-`src/disk_space_manager/executor.py` performs deletion and archive operations.
+`src/coldshelf/executor.py` performs deletion and archive operations.
 It handles dry-run accounting, writes action log entries, deletes cache files
 through shared safe delete helpers, and archives old files by copying them to
 the target, deleting the original file, and creating a symlink at the original
@@ -170,7 +170,7 @@ path.
 
 ### External Drive Detection
 
-`src/disk_space_manager/drive_detector.py` discovers writable mounted external
+`src/coldshelf/drive_detector.py` discovers writable mounted external
 drives. On macOS it uses `diskutil` with a `/Volumes` fallback. On Linux it
 parses `/proc/self/mountinfo`, ignores pseudo/system filesystems, and considers
 writable non-root mounts under common external-drive locations such as
@@ -178,7 +178,7 @@ writable non-root mounts under common external-drive locations such as
 
 ### Progress Estimation
 
-`src/disk_space_manager/progress_estimator.py` turns scanner progress snapshots
+`src/coldshelf/progress_estimator.py` turns scanner progress snapshots
 into determinate Rich progress values and heuristic ETA text for CLI
 `full-report`, where the final number of files is unknown until traversal
 finishes. The web app persists simpler phase, percent, and message fields and

@@ -80,5 +80,5 @@ NEAR_DUPLICATE_VIDEO_FRAME_HASH_DISTANCE = 10
 NEAR_DUPLICATE_DURATION_TOLERANCE_SECONDS = 2.0
 NEAR_DUPLICATE_DURATION_TOLERANCE_RATIO = 0.08
 
-# Action log file
+# Stable action log path: retain the audit trail across the coldshelf rebrand.
 ACTION_LOG_FILE = Path.home() / ".disk-space-manager-actions.log"

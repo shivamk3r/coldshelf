@@ -8,7 +8,7 @@ class HeavyIOQueue:
     """Serialize disk-heavy work so scans and Restic do not compete for I/O."""
 
     def __init__(self) -> None:
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dsm-io")
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="coldshelf-io")
 
     def submit(self, function: Callable[..., Any], *args: Any) -> Future:
         return self._executor.submit(function, *args)

@@ -1,5 +1,5 @@
 [project]
-name = "disk-space-manager"
+name = "coldshelf"
 version = "1.0.0"
 description = "A CLI tool to manage disk space on Unix-like systems by analyzing usage, cleaning caches, and archiving old files to external drives or local folders"
 readme = "README.md"
@@ -20,8 +20,11 @@ dependencies = [
 ]
 
 [project.scripts]
-disk-space-manager = "disk_space_manager.cli:cli"
-disk-space-manager-web = "disk_space_manager.web.server:main"
+coldshelf = "coldshelf.cli:cli"
+coldshelf-web = "coldshelf.web.server:main"
+# Keep existing launch scripts working during the rename.
+disk-space-manager = "coldshelf.cli:cli"
+disk-space-manager-web = "coldshelf.web.server:main"
 
 [build-system]
 requires = ["setuptools>=61"]
@@ -37,7 +40,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-"disk_space_manager.web" = ["static/index.html", "static/assets/*"]
+"coldshelf.web" = ["static/index.html", "static/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

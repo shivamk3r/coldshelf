@@ -129,7 +129,7 @@ class DirectorySizer:
             workers = min(len(pending), os.cpu_count() or 4)
             executor = ThreadPoolExecutor(
                 max_workers=workers,
-                thread_name_prefix="dsm-browse",
+                thread_name_prefix="coldshelf-browse",
             )
             futures = {
                 executor.submit(

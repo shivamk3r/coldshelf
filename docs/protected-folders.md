@@ -4,6 +4,9 @@ This runbook protects `/Users/you/Archives/large-files` in two
 independent encrypted Restic repositories. HDD1 and HDD2 may be connected in
 separate sessions. Do not run the legacy `archive` command on this folder.
 
+Existing Disk Space Manager archives work unchanged in coldshelf. Their storage
+names below are intentionally preserved; see [rebrand compatibility](rebranding.md).
+
 ## Safety model
 
 - The catalog is stored separately at
@@ -41,14 +44,14 @@ restic version --json
 The command must report version 0.19.1 or newer. Then prepare the project:
 
 ```bash
-cd /path/to/disk-space-manager
+cd /path/to/coldshelf
 uv sync
 ```
 
 ## 2. Create “Large Files”
 
 ```bash
-uv run disk-space-manager protect create \
+uv run coldshelf protect create \
   --name "Large Files" \
   --path /Users/you/Archives/large-files \
   --required-copies 2
@@ -61,7 +64,7 @@ blocked until this confirmation succeeds.
 If the prompt was interrupted after the set was created:
 
 ```bash
-uv run disk-space-manager protect confirm-recovery "Large Files"
+uv run coldshelf protect confirm-recovery "Large Files"
 ```
 
 ## 3. Enroll and back up HDD1
@@ -69,17 +72,17 @@ uv run disk-space-manager protect confirm-recovery "Large Files"
 Connect HDD1 and confirm the mounted volume identity:
 
 ```bash
-uv run disk-space-manager protect volumes
-uv run disk-space-manager protect enroll "Large Files" \
+uv run coldshelf protect volumes
+uv run coldshelf protect enroll "Large Files" \
   --mount-path /Volumes/HDD1
-uv run disk-space-manager protect index "Large Files"
-uv run disk-space-manager protect status "Large Files"
+uv run coldshelf protect index "Large Files"
+uv run coldshelf protect status "Large Files"
 ```
 
 Copy the HDD1 drive ID shown by `status`, then run:
 
 ```bash
-uv run disk-space-manager protect backup "Large Files" \
+uv run coldshelf protect backup "Large Files" \
   --drive-id <HDD1-DRIVE-ID>
 ```
 
@@ -91,12 +94,12 @@ show 1/2 coverage. Eject HDD1 normally in Finder before disconnecting it.
 Connect HDD2; HDD1 may remain disconnected:
 
 ```bash
-uv run disk-space-manager protect volumes
-uv run disk-space-manager protect enroll "Large Files" \
+uv run coldshelf protect volumes
+uv run coldshelf protect enroll "Large Files" \
   --mount-path /Volumes/HDD2
-uv run disk-space-manager protect index "Large Files"
-uv run disk-space-manager protect status "Large Files"
-uv run disk-space-manager protect backup "Large Files" \
+uv run coldshelf protect index "Large Files"
+uv run coldshelf protect status "Large Files"
+uv run coldshelf protect backup "Large Files" \
   --drive-id <HDD2-DRIVE-ID>
 ```
 
@@ -110,7 +113,7 @@ Structural verification is the default eviction threshold. To read every data
 block on a connected disk:
 
 ```bash
-uv run disk-space-manager protect verify "Large Files" \
+uv run coldshelf protect verify "Large Files" \
   --drive-id <CONNECTED-DRIVE-ID> --full
 ```
 
@@ -124,7 +127,7 @@ exists, restore into a separate test destination.
 With only HDD1 connected:
 
 ```bash
-uv run disk-space-manager protect restore "Large Files" \
+uv run coldshelf protect restore "Large Files" \
   --file-id <SAMPLE-FILE-ID> --drive-id <HDD1-DRIVE-ID> \
   --destination /Users/you/restore-test-hdd1
 ```
@@ -134,7 +137,7 @@ copy manually after inspection. Repeat with only HDD2 connected and a different
 test destination:
 
 ```bash
-uv run disk-space-manager protect restore "Large Files" \
+uv run coldshelf protect restore "Large Files" \
   --file-id <SAMPLE-FILE-ID> --drive-id <HDD2-DRIVE-ID> \
   --destination /Users/you/restore-test-hdd2
 ```
@@ -146,7 +149,7 @@ Do not proceed if either independent restore fails.
 Preview selected files first. The global `--dry-run` appears before `protect`:
 
 ```bash
-uv run disk-space-manager --dry-run protect evict "Large Files" \
+uv run coldshelf --dry-run protect evict "Large Files" \
   --file-id <FILE-ID>
 ```
 
@@ -154,7 +157,7 @@ Review eligible and blocked entries. The warning explicitly says whether only
 structural verification was used. Then run the real command:
 
 ```bash
-uv run disk-space-manager protect evict "Large Files" \
+uv run coldshelf protect evict "Large Files" \
   --file-id <FILE-ID>
 ```
 
@@ -170,7 +173,7 @@ Use `--all` instead of `--file-id` only after reviewing the complete dry-run.
 Connect either healthy enrolled disk and run:
 
 ```bash
-uv run disk-space-manager protect restore "Large Files" \
+uv run coldshelf protect restore "Large Files" \
   --file-id <FILE-ID> --drive-id <CONNECTED-DRIVE-ID>
 ```
 
@@ -181,7 +184,7 @@ to restore a copy elsewhere.
 ## 9. Dashboard workflow
 
 ```bash
-uv run disk-space-manager-web
+uv run coldshelf-web
 ```
 
 The command opens the authenticated dashboard automatically unless `--no-open`
@@ -214,7 +217,7 @@ Install this application and Restic on the new Mac, connect either disk, and
 run:
 
 ```bash
-uv run disk-space-manager protect import \
+uv run coldshelf protect import \
   --name "Large Files" \
   --source-path /Users/you/Archives/large-files \
   --mount-path /Volumes/HDD1 \

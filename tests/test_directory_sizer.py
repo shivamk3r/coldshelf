@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from disk_space_manager import directory_sizer as sizing
-from disk_space_manager.directory_sizer import (
+from coldshelf import directory_sizer as sizing
+from coldshelf.directory_sizer import (
     DirectorySizer,
     DirectorySizingCancelled,
 )

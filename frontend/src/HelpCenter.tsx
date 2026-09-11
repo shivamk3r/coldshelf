@@ -17,7 +17,7 @@ const ARTICLES: HelpArticle[] = [
     title: "Start and connect to the dashboard",
     summary: "Run one local command, then work entirely in the authenticated browser dashboard.",
     steps: [
-      "From the project folder, run: uv run disk-space-manager-web",
+      "From the project folder, run: uv run coldshelf-web",
       "The server prints an authenticated local URL and normally opens it automatically.",
       "If a browser cannot be opened, copy the printed URL. Use --no-open when you prefer that behavior.",
       "Keep the token private. It authorizes filesystem reports and confirmed actions on this computer."
@@ -91,7 +91,7 @@ const ARTICLES: HelpArticle[] = [
     steps: [
       "Exact duplicate groups contain files with matching streamed SHA-256 content hashes.",
       "Near-duplicate text, images, audio, and video use offline similarity fingerprints.",
-      "Inspect every path and keep the version you trust. Disk Space Manager does not delete duplicates automatically."
+      "Inspect every path and keep the version you trust. coldshelf does not delete duplicates automatically."
     ],
     notes: ["Near-duplicate size is reviewable, not guaranteed reclaimable space."]
   },
@@ -139,7 +139,7 @@ const ARTICLES: HelpArticle[] = [
     title: "Recover on a fresh Mac",
     summary: "Rebuild the offline catalog from either independent repository and the saved recovery key.",
     steps: [
-      "Install Disk Space Manager and Restic, then connect either enrolled disk.",
+      "Install coldshelf and Restic, then connect either enrolled disk.",
       "Choose Recover, select the disk, enter the future restore path, required copy count, and saved recovery key.",
       "If the disk contains multiple protected sets, provide the set ID shown in its repository marker.",
       "After import, restore catalog files normally from any connected healthy replica."
@@ -248,7 +248,7 @@ export function HelpCenter({ initialArticle = "start", onOpenReports, onOpenProt
 }
 
 function renderCommand(text: string) {
-  const command = "uv run disk-space-manager-web";
+  const command = "uv run coldshelf-web";
   if (!text.includes(command)) return text;
   const [before, after] = text.split(command);
   return <>{before}<code>{command}</code>{after}</>;

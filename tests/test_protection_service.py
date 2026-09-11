@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from disk_space_manager.protection.repository import ProtectionRepository
-from disk_space_manager.protection.service import (
+from coldshelf.protection.repository import ProtectionRepository
+from coldshelf.protection.service import (
     ProtectionError,
     ProtectionService,
     _atomic_place_no_overwrite,
@@ -17,7 +17,7 @@ from .protection_fakes import FakeRestic, FakeVolumes, MemorySecretStore, fake_v
 @pytest.fixture(autouse=True)
 def _use_temporary_action_log(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "disk_space_manager.executor.ACTION_LOG_FILE", tmp_path / "actions.log"
+        "coldshelf.executor.ACTION_LOG_FILE", tmp_path / "actions.log"
     )
 
 
@@ -49,7 +49,7 @@ def _create_and_enroll(service, source, volumes):
 
 def test_sequential_disks_changed_file_gate_evict_and_restore_from_either(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "disk_space_manager.executor.ACTION_LOG_FILE", tmp_path / "actions.log"
+        "coldshelf.executor.ACTION_LOG_FILE", tmp_path / "actions.log"
     )
     service, source, volumes, _ = _service(tmp_path)
     folder, first, second = _create_and_enroll(service, source, volumes)
@@ -248,7 +248,7 @@ def test_enrollment_marker_failure_rolls_back_and_is_retryable(tmp_path, monkeyp
     volumes.mount_only("volume-1")
     volume = volumes.volumes["volume-1"]
 
-    from disk_space_manager.protection import service as service_module
+    from coldshelf.protection import service as service_module
 
     real_writer = service_module._write_recovery_marker
 
@@ -269,7 +269,7 @@ def test_index_backup_and_audit_ignore_ds_store_but_keep_other_dotfiles(
     tmp_path, monkeypatch
 ):
     action_log = tmp_path / "actions.log"
-    monkeypatch.setattr("disk_space_manager.executor.ACTION_LOG_FILE", action_log)
+    monkeypatch.setattr("coldshelf.executor.ACTION_LOG_FILE", action_log)
     service, source, volumes, restic = _service(tmp_path)
     folder, first, _ = _create_and_enroll(service, source, volumes)
     (source / ".DS_Store").write_bytes(b"finder metadata")
@@ -317,7 +317,7 @@ def test_legacy_ds_store_generation_is_retired_without_accepting_changed_files(
     tmp_path, monkeypatch
 ):
     action_log = tmp_path / "actions.log"
-    monkeypatch.setattr("disk_space_manager.executor.ACTION_LOG_FILE", action_log)
+    monkeypatch.setattr("coldshelf.executor.ACTION_LOG_FILE", action_log)
     service, source, volumes, _ = _service(tmp_path)
     folder, first, _ = _create_and_enroll(service, source, volumes)
     ds_store = source / ".DS_Store"

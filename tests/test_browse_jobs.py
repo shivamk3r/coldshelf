@@ -5,12 +5,12 @@ from threading import Event
 
 import pytest
 
-from disk_space_manager.directory_sizer import (
+from coldshelf.directory_sizer import (
     DirectorySizer,
     DirectorySizingCancelled,
 )
-from disk_space_manager.web.browse_jobs import BrowseJobManager, BrowseJobNotFound
-from disk_space_manager.web.io_queue import HeavyIOQueue
+from coldshelf.web.browse_jobs import BrowseJobManager, BrowseJobNotFound
+from coldshelf.web.io_queue import HeavyIOQueue
 
 
 def _wait_for_status(manager, scan_id, statuses, attempts=200):

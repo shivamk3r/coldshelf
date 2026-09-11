@@ -13,7 +13,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from disk_space_manager.executor import ActionExecutor
+from coldshelf.executor import ActionExecutor
 
 from .keychain import KeychainSecretStore, SecretStoreError
 from .policy import is_ignored_backup_path
@@ -26,6 +26,8 @@ from .restic import ResticError, ResticRunner, generation_id_from_tags
 from .volumes import MacOSVolumeProvider, VolumeError, VolumeInfo
 
 
+# On-disk format identifiers, retained for existing archives and interrupted work.
+# Recovery import validates these paths, including on a fresh installation.
 CONTROL_DIRECTORY = ".disk-space-manager"
 REPOSITORY_ROOT = Path("DiskSpaceManager") / "protected"
 
@@ -1506,7 +1508,7 @@ def _write_recovery_marker(
     )
     _atomic_write_text(
         set_root / "RECOVERY.txt",
-        "Disk Space Manager protected repository\n\n"
+        "coldshelf protected repository\n\n"
         f"Protected folder ID: {folder['id']}\n"
         f"Restic repository: {drive['repo_relative_path']}\n"
         "The recovery key is intentionally not stored on this disk. Retrieve it from "

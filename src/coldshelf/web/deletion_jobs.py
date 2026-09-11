@@ -15,9 +15,9 @@ from pathlib import Path
 from threading import Condition, RLock, Thread
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
-from disk_space_manager.config import ACTION_LOG_FILE
-from disk_space_manager.executor import ActionExecutor
-from disk_space_manager.protection.repository import ProtectionRepository
+from coldshelf.config import ACTION_LOG_FILE
+from coldshelf.executor import ActionExecutor
+from coldshelf.protection.repository import ProtectionRepository
 
 from .browse_jobs import BrowseJobManager
 from .io_queue import HeavyIOQueue
@@ -178,7 +178,7 @@ class BrowseDeletionPolicy:
                 candidate, state_path.expanduser().resolve(strict=False)
             ):
                 return DeletionEligibility(
-                    False, "Active Disk Space Manager state cannot be deleted", allowed_root
+                    False, "Active coldshelf state cannot be deleted", allowed_root
                 )
         return DeletionEligibility(True, None, allowed_root)
 
@@ -231,7 +231,7 @@ class BrowseDeletionPolicy:
             if _paths_overlap(
                 candidate, state_path.expanduser().resolve(strict=False)
             ):
-                return "The item overlaps active Disk Space Manager state"
+                return "The item overlaps active coldshelf state"
         return None
 
 
@@ -275,7 +275,7 @@ class BrowseDeletionManager:
             self._stopping = False
             self._thread = Thread(
                 target=self._scheduler_loop,
-                name="dsm-browse-delete",
+                name="coldshelf-browse-delete",
                 daemon=True,
             )
             self._thread.start()

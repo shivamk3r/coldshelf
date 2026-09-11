@@ -1,4 +1,4 @@
-"""FastAPI application factory for Disk Space Manager Web."""
+"""FastAPI application factory for coldshelf Web."""
 
 import asyncio
 import json
@@ -12,14 +12,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from disk_space_manager.config import DEFAULT_AGE_THRESHOLD_MONTHS
-from disk_space_manager.directory_sizer import DirectorySizingError
-from disk_space_manager.protection.repository import (
+from coldshelf.config import DEFAULT_AGE_THRESHOLD_MONTHS
+from coldshelf.directory_sizer import DirectorySizingError
+from coldshelf.protection.repository import (
     DEFAULT_PROTECTION_DB_PATH,
     ProtectionRepository,
 )
-from disk_space_manager.protection.restic import MIN_RESTIC_VERSION
-from disk_space_manager.protection.service import ProtectionError, ProtectionService
+from coldshelf.protection.restic import MIN_RESTIC_VERSION
+from coldshelf.protection.service import ProtectionError, ProtectionService
 
 from .io_queue import HeavyIOQueue
 from .browse_jobs import BrowseJobManager, BrowseJobNotFound, BrowseResultNotReady
@@ -148,7 +148,7 @@ def create_app(
             deletion_manager.shutdown()
             io_queue.shutdown()
 
-    app = FastAPI(title="Disk Space Manager Web", lifespan=lifespan)
+    app = FastAPI(title="coldshelf Web", lifespan=lifespan)
     app.state.repository = repo
     app.state.job_manager = job_manager
     app.state.browse_manager = browse_manager

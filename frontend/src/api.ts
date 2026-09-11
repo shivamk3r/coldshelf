@@ -20,8 +20,8 @@ import type {
   StorageSummary
 } from "./types";
 
-const API_BASE = import.meta.env.VITE_DSM_API_BASE || "";
-const ENV_TOKEN = import.meta.env.VITE_DSM_TOKEN || "";
+const API_BASE = import.meta.env.VITE_COLDSHELF_API_BASE || import.meta.env.VITE_DSM_API_BASE || "";
+const ENV_TOKEN = import.meta.env.VITE_COLDSHELF_TOKEN || import.meta.env.VITE_DSM_TOKEN || "";
 
 export function initialToken(): string {
   const params = new URLSearchParams(window.location.search);
@@ -35,14 +35,16 @@ export function initialToken(): string {
       `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`
     );
   }
-  return queryToken || ENV_TOKEN || localStorage.getItem("dsm-token") || "";
+  return queryToken || ENV_TOKEN || localStorage.getItem("coldshelf-token") || localStorage.getItem("dsm-token") || "";
 }
 
 export function saveToken(token: string): void {
-  localStorage.setItem("dsm-token", token);
+  localStorage.setItem("coldshelf-token", token);
+  localStorage.removeItem("dsm-token");
 }
 
 export function clearToken(): void {
+  localStorage.removeItem("coldshelf-token");
   localStorage.removeItem("dsm-token");
 }
 

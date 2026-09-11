@@ -323,7 +323,7 @@ wheels = [
 ]
 
 [[package]]
-name = "disk-space-manager"
+name = "coldshelf"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [

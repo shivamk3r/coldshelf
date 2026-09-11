@@ -4,9 +4,9 @@ import os
 import uuid
 from pathlib import Path
 
-from disk_space_manager.protection.policy import is_ignored_backup_path
-from disk_space_manager.protection.restic import ResticError
-from disk_space_manager.protection.volumes import VolumeInfo
+from coldshelf.protection.policy import is_ignored_backup_path
+from coldshelf.protection.restic import ResticError
+from coldshelf.protection.volumes import VolumeInfo
 
 
 class MemorySecretStore:

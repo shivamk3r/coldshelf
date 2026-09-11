@@ -5,11 +5,11 @@ from concurrent.futures import Future
 from threading import RLock
 from typing import Any, Dict, Optional
 
-from disk_space_manager.protection.repository import (
+from coldshelf.protection.repository import (
     ProtectionRepository,
     operation_failure_diagnostics,
 )
-from disk_space_manager.protection.service import ProtectionError, ProtectionService
+from coldshelf.protection.service import ProtectionError, ProtectionService
 
 from .io_queue import HeavyIOQueue
 from .schemas import ProtectionOperationRequest

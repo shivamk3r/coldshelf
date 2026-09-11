@@ -3,8 +3,8 @@ import stat
 
 import pytest
 
-from disk_space_manager.protection.repository import ProtectionRepository
-from disk_space_manager.protection.service import ProtectionError, _safe_source_path
+from coldshelf.protection.repository import ProtectionRepository
+from coldshelf.protection.service import ProtectionError, _safe_source_path
 
 
 def test_schema_generation_replica_status_and_operation_lifecycle(tmp_path):

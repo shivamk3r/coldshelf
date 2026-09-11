@@ -6,9 +6,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from disk_space_manager.protection.repository import ProtectionRepository
-from disk_space_manager.web.app import create_app
-from disk_space_manager.web.repository import WebRepository
+from coldshelf.protection.repository import ProtectionRepository
+from coldshelf.web.app import create_app
+from coldshelf.web.repository import WebRepository
 
 
 def _auth(token="secret"):
@@ -118,7 +118,7 @@ def _app(
 
 def test_preview_schedule_and_undo_leave_items_unchanged(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "disk_space_manager.executor.ACTION_LOG_FILE", tmp_path / "actions.log"
+        "coldshelf.executor.ACTION_LOG_FILE", tmp_path / "actions.log"
     )
     source = tmp_path / "source"
     source.mkdir()
@@ -183,7 +183,7 @@ def test_deletes_regular_file_and_folder_without_following_nested_symlink(
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(
-        "disk_space_manager.executor.ACTION_LOG_FILE", tmp_path / "actions.log"
+        "coldshelf.executor.ACTION_LOG_FILE", tmp_path / "actions.log"
     )
     source = tmp_path / "source"
     source.mkdir()
@@ -322,7 +322,7 @@ def test_blocks_active_application_state_and_non_child_paths(tmp_path):
         scan, result = _scan(client, source)
         state_entry = next(item for item in result["entries"] if item["path"] == str(state))
         assert state_entry["deletion_eligible"] is False
-        assert "disk space manager state" in state_entry["deletion_blocker"].lower()
+        assert "coldshelf state" in state_entry["deletion_blocker"].lower()
 
         preview = _preview(client, scan["id"], [state, nested])
         assert preview["can_schedule"] is False

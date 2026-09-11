@@ -1,4 +1,4 @@
-"""Click command declarations for Disk Space Manager."""
+"""Click command declarations for coldshelf."""
 
 from pathlib import Path
 from typing import Optional
@@ -18,7 +18,7 @@ from .protection.cli import protect
 )
 @click.pass_context
 def cli(ctx, dry_run: bool) -> None:
-    """Disk Space Manager - Clean, analyze, and archive files."""
+    """coldshelf - Clean, analyze, and archive files."""
     ctx.ensure_object(dict)
     ctx.obj["dry_run"] = dry_run
     if dry_run:

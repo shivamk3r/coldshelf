@@ -1,4 +1,4 @@
-"""Web-facing services that reuse the core disk-space-manager modules."""
+"""Web-facing services that reuse the core coldshelf modules."""
 
 import hashlib
 import os
@@ -8,18 +8,18 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
-from disk_space_manager.analyzer import FileAnalyzer
-from disk_space_manager.archive_targets import (
+from coldshelf.analyzer import FileAnalyzer
+from coldshelf.archive_targets import (
     ArchiveTarget,
     ArchiveTargetError,
     resolve_archive_target,
 )
-from disk_space_manager.duplicates import DuplicateDetector, empty_duplicate_report
-from disk_space_manager.drive_detector import detect_external_drives
-from disk_space_manager.executor import ActionExecutor
-from disk_space_manager.scanner import DiskScanner, ScanProgress
-from disk_space_manager.protection.repository import ProtectionRepository
-from disk_space_manager.utils import format_size
+from coldshelf.duplicates import DuplicateDetector, empty_duplicate_report
+from coldshelf.drive_detector import detect_external_drives
+from coldshelf.executor import ActionExecutor
+from coldshelf.scanner import DiskScanner, ScanProgress
+from coldshelf.protection.repository import ProtectionRepository
+from coldshelf.utils import format_size
 
 from .repository import WebRepository, confirmation_phrase
 from .schemas import ActionRequest, JobCreateRequest

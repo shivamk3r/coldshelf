@@ -12,7 +12,7 @@ from pathlib import Path
 from threading import Event, RLock
 from typing import Any, Callable, Dict, List, Optional
 
-from disk_space_manager.directory_sizer import (
+from coldshelf.directory_sizer import (
     DirectorySizer,
     DirectorySizingCancelled,
     PreparedDirectory,

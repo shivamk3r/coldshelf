@@ -7,6 +7,7 @@ from typing import Optional
 import keyring
 
 
+# Persistent credential namespace. Renaming it would hide existing recovery keys.
 KEYRING_SERVICE = "disk-space-manager.restic"
 
 

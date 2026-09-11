@@ -1,8 +1,8 @@
 from click.testing import CliRunner
 
-from disk_space_manager.cli import cli
-from disk_space_manager.protection.repository import ProtectionRepository
-from disk_space_manager.protection.service import ProtectionService
+from coldshelf.cli import cli
+from coldshelf.protection.repository import ProtectionRepository
+from coldshelf.protection.service import ProtectionService
 
 from .protection_fakes import FakeRestic, FakeVolumes, MemorySecretStore, fake_volume
 
@@ -18,7 +18,7 @@ def test_protect_create_requires_recovery_key_pasteback(tmp_path, monkeypatch):
         FakeVolumes([volume]),
     )
     monkeypatch.setattr(
-        "disk_space_manager.protection.cli._service", lambda: service
+        "coldshelf.protection.cli._service", lambda: service
     )
 
     result = CliRunner().invoke(
@@ -47,7 +47,7 @@ def test_legacy_clean_skips_registered_protected_paths(tmp_path, monkeypatch):
     repository = ProtectionRepository(tmp_path / "protected.sqlite3")
     repository.create_folder("folder", "Protected", source, 2)
     monkeypatch.setattr(
-        "disk_space_manager.workflows.ProtectionRepository", lambda: repository
+        "coldshelf.workflows.ProtectionRepository", lambda: repository
     )
 
     result = CliRunner().invoke(
@@ -73,7 +73,7 @@ def test_cli_protection_operation_is_persisted(tmp_path, monkeypatch):
     )
     created = service.create_folder("Large files", source)
     service.confirm_recovery_key(created["id"], created["recovery_key"])
-    monkeypatch.setattr("disk_space_manager.protection.cli._service", lambda: service)
+    monkeypatch.setattr("coldshelf.protection.cli._service", lambda: service)
 
     result = CliRunner().invoke(cli, ["protect", "index", "Large files"])
 

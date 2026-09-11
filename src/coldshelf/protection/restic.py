@@ -440,7 +440,7 @@ class ResticRunner:
             executable = shlex.quote(sys.executable)
             folder_arg = shlex.quote(folder_id)
             env["RESTIC_PASSWORD_COMMAND"] = (
-                f"{executable} -m disk_space_manager.protection.password_command {folder_arg}"
+                f"{executable} -m coldshelf.protection.password_command {folder_arg}"
             )
         return env
 
@@ -468,6 +468,7 @@ def _wait_or_terminate(process: subprocess.Popen) -> None:
 
 
 def _snapshot_tags(folder_id: str, generation_id: str) -> List[str]:
+    # Persistent format: old snapshots and fresh-Mac recovery use these tags.
     return [f"dsm-set-{folder_id}", f"dsm-generation-{generation_id}", "dsm-protected"]
 
 

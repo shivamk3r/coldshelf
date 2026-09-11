@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from .schemas import JobCreateRequest
 
 
+# Preserve report history and any pending deletion/Undo state across the rebrand.
 DEFAULT_DB_PATH = Path.home() / ".disk-space-manager-web.sqlite3"
 
 

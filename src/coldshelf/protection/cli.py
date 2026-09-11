@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, Optional, Sequence
 
 import click
 
-from disk_space_manager.utils import format_size
+from coldshelf.utils import format_size
 
 from .repository import operation_failure_diagnostics
 from .service import ProtectionError, ProtectionService

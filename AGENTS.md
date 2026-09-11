@@ -2,7 +2,7 @@
 
 ## Repository Purpose
 
-Disk Space Manager is a Python CLI for Unix-like disk maintenance, with support
+coldshelf is a Python CLI for Unix-like disk maintenance, with support
 for macOS and Linux. It scans disk usage, identifies removable cache and
 temporary files, and archives old files to an external drive or local folder
 while preserving directory structure and leaving symlinks behind. Safety
@@ -16,10 +16,10 @@ behavior, and action logging intact.
    and architecture.
 3. Read `pyproject.toml`, `uv.lock`, and `requirements.txt` for dependency and
    test setup.
-4. Read `src/disk_space_manager/config.py` before changing scan exclusions,
+4. Read `src/coldshelf/config.py` before changing scan exclusions,
    cache patterns, thresholds, or action-log behavior.
 5. Read the relevant implementation module and matching tests before editing:
-   `src/disk_space_manager/cli.py`, `workflows.py`, `ui.py`, `scanner.py`,
+   `src/coldshelf/cli.py`, `workflows.py`, `ui.py`, `scanner.py`,
    `analyzer.py`, `executor.py`, `drive_detector.py`, `utils.py`, `tests/`,
    and `docs/`.
 6. Use `.agents/skills/` and `.agents/commands/` for shared agent assets. The
@@ -28,21 +28,21 @@ behavior, and action logging intact.
 ## Repo Directory Map
 
 - `main.py` - Compatibility shim for `uv run python main.py ...`.
-- `src/disk_space_manager/cli.py` - Click command declarations.
-- `src/disk_space_manager/workflows.py` - Command orchestration.
-- `src/disk_space_manager/ui.py` - Rich terminal presentation and prompts.
-- `src/disk_space_manager/archive_targets.py` - Archive target resolution.
-- `src/disk_space_manager/scanner.py` - High-performance filesystem scanning
+- `src/coldshelf/cli.py` - Click command declarations.
+- `src/coldshelf/workflows.py` - Command orchestration.
+- `src/coldshelf/ui.py` - Rich terminal presentation and prompts.
+- `src/coldshelf/archive_targets.py` - Archive target resolution.
+- `src/coldshelf/scanner.py` - High-performance filesystem scanning
   with `os.scandir` and a thread pool.
-- `src/disk_space_manager/analyzer.py` - Cache detection, old-file detection,
+- `src/coldshelf/analyzer.py` - Cache detection, old-file detection,
   and disk usage summaries.
-- `src/disk_space_manager/executor.py` - Delete/archive operations, symlink
+- `src/coldshelf/executor.py` - Delete/archive operations, symlink
   creation, and action logs.
-- `src/disk_space_manager/drive_detector.py` - Unix-like external-drive
+- `src/coldshelf/drive_detector.py` - Unix-like external-drive
   detection using platform tools and mount metadata.
-- `src/disk_space_manager/config.py` - Defaults, cache patterns, exclusions,
+- `src/coldshelf/config.py` - Defaults, cache patterns, exclusions,
   thresholds, and log path.
-- `src/disk_space_manager/utils.py` - Shared helpers such as size formatting
+- `src/coldshelf/utils.py` - Shared helpers such as size formatting
   and safe file operations.
 - `tests/` - Pytest coverage for CLI behavior, archiving, drive detection,
   progress callbacks, and profiling helpers.
@@ -57,7 +57,7 @@ behavior, and action logging intact.
 
 - Use `uv sync` to set up dependencies.
 - Run CLI commands through `uv run`, for example
-  `uv run disk-space-manager full-report --path tests`.
+  `uv run coldshelf full-report --path tests`.
 - Keep changes narrow and aligned with the current module boundaries. Avoid new
   dependencies unless they are clearly justified.
 - Preserve the CLI's safety model: destructive operations need confirmation,
@@ -82,7 +82,7 @@ Use these as needed:
 
 ```bash
 uv sync
-uv run disk-space-manager full-report --path tests --age-months 6
+uv run coldshelf full-report --path tests --age-months 6
 uv run python scripts/profile_report_generation.py --file-count 10000 --max-bytes 50000000
 ```
 
@@ -101,6 +101,9 @@ changes. It creates and deletes `downloads/benchmark`.
   or action logs.
 - Be careful with symlink behavior when changing archive logic. The application
   intentionally creates symlinks at original locations after moving files.
+- Preserve the persistent storage identifiers documented in `docs/rebranding.md`.
+  Their legacy names keep existing catalogs, Keychain secrets, and Restic
+  archives restorable after the coldshelf rebrand; they are not stale branding.
 
 ## Tool-Specific Notes
 

@@ -1,13 +1,18 @@
 """Optional real-Restic end-to-end test; all data stays in pytest temp paths."""
 
 import os
+import json
 import shutil
 import uuid
 
 import pytest
 
-from disk_space_manager.protection.restic import ResticRunner
-from disk_space_manager.protection.service import _validate_snapshot_manifest
+from coldshelf.protection.restic import ResticRunner
+from coldshelf.protection.service import _validate_snapshot_manifest
+from coldshelf.protection.repository import ProtectionRepository
+from coldshelf.protection.service import ProtectionService
+
+from .protection_fakes import FakeVolumes, MemorySecretStore, fake_volume
 
 
 RESTIC_BINARY = os.environ.get("RESTIC_TEST_BINARY") or shutil.which("restic")
@@ -80,3 +85,46 @@ def test_real_restic_backup_check_catalog_and_restore(tmp_path):
         operation_id="integration-restore",
     )
     assert (restore_target / "nested" / "sample.bin").read_bytes() == b"real restic round trip"
+
+
+@pytest.mark.skipif(not RESTIC_BINARY, reason="Restic is not installed")
+def test_coldshelf_imports_and_restores_pre_rebrand_archive(tmp_path, monkeypatch):
+    """Build the old format independently, then recover it with the renamed app."""
+    monkeypatch.setattr("coldshelf.executor.ACTION_LOG_FILE", tmp_path / "actions.log")
+    volume = fake_volume(tmp_path / "HDD", "legacy-volume", "HDD")
+    folder_id = str(uuid.uuid4())
+    generation_id = str(uuid.uuid4())
+    relative_repo = f"DiskSpaceManager/protected/{folder_id}/restic"
+    repository = tmp_path / "HDD" / relative_repo
+    source = tmp_path / "old-source"
+    source.mkdir()
+    payload = b"offloaded before the coldshelf rename"
+    (source / "sample.bin").write_bytes(payload)
+    runner = TemporaryPasswordRestic(binary=str(RESTIC_BINARY))
+    repository_id = runner.initialize_repository(repository, folder_id)
+    runner.run(
+        ["backup", ".", "--json", "--tag", f"dsm-set-{folder_id}",
+         "--tag", f"dsm-generation-{generation_id}", "--tag", "dsm-protected"],
+        repository=repository, folder_id=folder_id, cwd=source,
+    )
+    (repository.parent / "repository.json").write_text(json.dumps({
+        "schema_version": 1,
+        "protected_folder_id": folder_id,
+        "repo_relative_path": relative_repo,
+        "repository_id": repository_id,
+    }))
+    (source / "sample.bin").unlink()
+
+    catalog = ProtectionRepository(tmp_path / "recovered-catalog.sqlite3")
+    service = ProtectionService(catalog, runner, MemorySecretStore(), FakeVolumes([volume]))
+    service.import_from_drive(
+        name="Pre-rebrand archive", source_path=source,
+        mount_path=tmp_path / "HDD", recovery_key="temporary-integration-test-password",
+        required_copies=1,
+    )
+    files = catalog.list_all_files(folder_id)
+    assert len(files) == 1
+    assert files[0]["local_state"] == "evicted"
+    result = service.restore(folder_id, file_ids=[files[0]["id"]], operation_id="restore-legacy")
+    assert result["restored"] == 1
+    assert (source / "sample.bin").read_bytes() == payload
