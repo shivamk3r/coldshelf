@@ -394,7 +394,7 @@ export type ProtectionOperationStatus =
 export interface ProtectionOperation {
   id: string;
   protected_folder_id: string;
-  kind: "index" | "backup" | "verify" | "evict" | "restore";
+  kind: "index" | "backup" | "verify" | "evict" | "restore" | "repair_identity";
   status: ProtectionOperationStatus;
   drive_target_id?: string | null;
   request: Record<string, unknown>;

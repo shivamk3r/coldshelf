@@ -274,6 +274,25 @@ def verify(folder: str, drive_id: str, full: bool, file_ids: Sequence[str]) -> N
         _raise_click_error(exc)
 
 
+@protect.command("repair-identity")
+@click.argument("folder")
+@click.option("--file-id", "file_ids", multiple=True, required=True)
+def repair_identity(folder: str, file_ids: Sequence[str]) -> None:
+    """Compare local bytes with a connected backup and repair catalog identity."""
+    try:
+        service = _mutation_service()
+        result = _recorded_operation(
+            service, folder, "repair_identity",
+            {"kind": "repair_identity", "file_ids": list(file_ids)},
+            lambda operation_id, progress: service.repair_local_identity(
+                folder, file_ids=file_ids, operation_id=operation_id, progress=progress,
+            ),
+        )
+        _render(result)
+    except (ProtectionError, KeyError, OSError) as exc:
+        _raise_click_error(exc)
+
+
 @protect.command("evict")
 @click.argument("folder")
 @click.option("--all", "all_files", is_flag=True, help="Select all locally present files.")

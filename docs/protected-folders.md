@@ -168,6 +168,36 @@ the repository/snapshot evidence in SQLite and
 
 Use `--all` instead of `--file-id` only after reviewing the complete dry-run.
 
+### Local identity after reboot or restore
+
+New catalog entries identify their source filesystem by its persistent volume
+UUID. A changed temporary device number after reboot does not invalidate the
+file's replica receipts. Size, modification time, metadata-change time, inode,
+and volume identity still gate eviction, with live device checks during removal.
+A successful restore refreshes the local instance identity while retaining the
+protected file version and its backup receipts.
+
+Older catalogs migrate in place without guessing a missing source volume UUID.
+If eviction reports a legacy identity or filesystem device mismatch, connect an
+enrolled disk, select the affected **local/restored** files, and choose
+**Repair local identity**. The CLI equivalent is:
+
+```bash
+uv run coldshelf protect repair-identity "Large Files" --file-id <FILE-ID>
+```
+
+Repair streams both the local contents and the selected backup through SHA-256.
+It requires successful Restic readback, matching contents and catalog size/mtime,
+and an unchanged local fingerprint throughout the comparison. Only then does it
+refresh the local identity and retain the existing replica receipts. It does not
+delete files, write a full-size restored copy, or grant full-verification credit
+to other files or disks. Each repaired file is logged; if a later selected file
+fails or the operation is cancelled, earlier successful repairs remain recorded.
+Preview eviction again after repair; the usual copy policy and exact confirmation
+still apply. Missing/offline replicas, unreadable data, or mismatching contents
+leave the affected file blocked. Changed contents must be indexed and backed up
+as a new version. Do not manually edit stored identity fields to bypass repair.
+
 ## 8. Restore an evicted file later
 
 Connect either healthy enrolled disk and run:

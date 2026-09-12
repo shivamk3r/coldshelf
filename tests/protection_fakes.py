@@ -1,6 +1,7 @@
 """Deterministic Restic, Keychain, and mounted-volume fakes for protection tests."""
 
 import os
+import hashlib
 import uuid
 from pathlib import Path
 
@@ -35,6 +36,10 @@ class FakeVolumes:
     def __init__(self, volumes):
         self.volumes = {volume.volume_uuid: volume for volume in volumes}
         self.mounted = set(self.volumes)
+        self.source_uuid = "source-volume-uuid"
+
+    def source_volume_uuid(self, path):
+        return self.source_uuid
 
     def ensure_supported(self):
         return None
@@ -223,3 +228,8 @@ class FakeRestic:
     def cancel(self, operation_id):
         self.cancelled.append(operation_id)
         return True
+
+    def hash_snapshot_file(self, repository, folder_id, snapshot_id, relative_path,
+                           *, operation_id, progress=None):
+        self.repository_id(repository, folder_id)
+        return hashlib.sha256(self.snapshot_contents[snapshot_id][relative_path]).hexdigest()

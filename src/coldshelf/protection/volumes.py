@@ -1,9 +1,11 @@
 """Stable external-volume discovery for protected-folder targets on macOS."""
 
 import os
+import ctypes
 import platform
 import plistlib
 import subprocess
+import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -46,6 +48,15 @@ class MacOSVolumeProvider:
     def ensure_supported(self) -> None:
         if self._system() != "Darwin":
             raise VolumeError("Protected folders are currently supported on macOS only")
+
+    def source_volume_uuid(self, path: Path) -> str:
+        """Identify the actual containing filesystem, including APFS firmlinks.
+
+        getattrlist accepts a file path; diskutil info only accepts disk/mount
+        identifiers. Never infer this UUID from '/' or from the boot volume.
+        """
+        self.ensure_supported()
+        return _source_volume_uuid(path)
 
     def list_volumes(self) -> List[VolumeInfo]:
         self.ensure_supported()
@@ -128,6 +139,31 @@ def _bytes_output(value) -> bytes:
     if isinstance(value, bytes):
         return value
     return str(value).encode()
+
+
+def _source_volume_uuid(path: Path) -> str:
+    class AttrList(ctypes.Structure):
+        _fields_ = [("bitmapcount", ctypes.c_uint16), ("reserved", ctypes.c_uint16),
+                    ("commonattr", ctypes.c_uint32), ("volattr", ctypes.c_uint32),
+                    ("dirattr", ctypes.c_uint32), ("fileattr", ctypes.c_uint32),
+                    ("forkattr", ctypes.c_uint32)]
+
+    # sys/attr.h: ATTR_BIT_MAP_COUNT, ATTR_VOL_INFO | ATTR_VOL_UUID.
+    attributes = AttrList(5, 0, 0, 0x80040000, 0, 0, 0)
+    result = ctypes.create_string_buffer(20)  # uint32 length, uuid_t
+    libc = ctypes.CDLL(None, use_errno=True)
+    getattrlist = libc.getattrlist
+    getattrlist.argtypes = [ctypes.c_char_p, ctypes.POINTER(AttrList),
+                           ctypes.c_void_p, ctypes.c_size_t, ctypes.c_ulong]
+    getattrlist.restype = ctypes.c_int
+    if getattrlist(os.fsencode(path), ctypes.byref(attributes), result, 20, 0) != 0:
+        raise VolumeError(f"Cannot identify source volume: {os.strerror(ctypes.get_errno())}")
+    if int.from_bytes(result.raw[:4], byteorder="little") != 20:
+        raise VolumeError("Source filesystem returned an invalid volume identity")
+    value = uuid.UUID(bytes=result.raw[4:20])
+    if value.int == 0:
+        raise VolumeError("Source filesystem has no persistent volume UUID")
+    return str(value)
 
 
 def _decode_output(value) -> str:

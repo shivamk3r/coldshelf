@@ -266,6 +266,13 @@ distinct repositories and the recovery key was confirmed. Structural Restic
 checks qualify by default; `protect verify --full` reads data blocks back. No
 symlink or stub remains after eviction, and restore never overwrites a path.
 
+Local source volumes use persistent UUIDs so reboot device renumbering does not
+invalidate backup receipts. For an older catalog's identity mismatch, connect an
+enrolled backup disk and use **Repair local identity** on selected local files,
+or `uv run coldshelf protect repair-identity "Large Files" --file-id <FILE-ID>`.
+Repair compares local and archived contents before refreshing identity; it keeps
+the file and matching receipts intact. Preview eviction again after repair.
+
 See [the protected-folder runbook](docs/protected-folders.md) before protecting
 or evicting real data. Do not use the legacy `archive` command on a protected
 folder; registered protected paths are excluded from legacy mutations.

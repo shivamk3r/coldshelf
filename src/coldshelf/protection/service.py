@@ -312,6 +312,27 @@ class ProtectionService:
         if progress:
             progress(0.05, "Indexing file metadata")
         entries = _scan_metadata(source, progress)
+        volume_ids: Dict[int, str] = {}
+        current = {item["relative_path"]: item for item in self.repository.list_all_files(folder["id"])}
+        for entry in entries:
+            path = _safe_source_path(source, entry["relative_path"])
+            device = entry["device"]
+            if device not in volume_ids:
+                volume_ids[device] = self._source_volume_uuid(path)
+            entry["source_volume_uuid"] = volume_ids[device]
+            previous = current.get(entry["relative_path"])
+            if previous and not previous.get("source_volume_uuid") and _fingerprint_matches(
+                entry, previous, ("size", "mtime_ns", "ctime_ns", "inode")
+            ) and any(
+                replica["status"] in VERIFIED_REPLICA_STATES
+                for replica in self.repository.get_file_replicas(previous["id"])
+            ):
+                raise ProtectionError(
+                    "Legacy local identity needs verification before indexing. "
+                    "Connect an enrolled backup disk and use Repair local identity "
+                    f"(protect repair-identity): {entry['relative_path']}"
+                )
+        self._validate_entries(source, entries)
         manifest_digest = _manifest_digest(entries)
         retired_paths = [
             item["relative_path"]
@@ -702,6 +723,90 @@ class ProtectionService:
             ),
         }
 
+    def repair_local_identity(
+        self, folder_id_or_name: str, *, file_ids: Sequence[str],
+        operation_id: str, progress: ProgressCallback = None,
+    ) -> Dict[str, Any]:
+        """Rebind a local instance only after comparing it to a verified receipt.
+
+        The catalog version ID and all replica receipts remain unchanged. A
+        legacy device number alone is never evidence for trusting a new volume.
+        """
+        self.preflight()
+        folder = self.repository.get_folder(folder_id_or_name)
+        files = self._selected_files(folder, file_ids, all_files=False)
+        source = Path(folder["source_path"])
+        mounted = self.refresh_drive_status()
+        repaired = []
+        for index, entry in enumerate(files):
+            if entry["local_state"] not in {"local", "restored"} or not entry["is_current"]:
+                raise ProtectionError("Identity repair requires a current local or restored file")
+            path = _safe_source_path(source, entry["relative_path"])
+            before = self._local_fingerprint(path)
+            if not _fingerprint_matches(before, entry, ("size", "mtime_ns")):
+                raise ProtectionError(
+                    "Source size or modification time changed; index and back up the new version: "
+                    f"{entry['relative_path']}"
+                )
+            replicas = [replica for replica in self.repository.get_file_replicas(entry["id"])
+                        if replica["status"] in VERIFIED_REPLICA_STATES
+                        and replica["volume_uuid"] in mounted]
+            if not replicas:
+                raise ProtectionError("Connect an enrolled disk with a verified replica to repair local identity")
+            replica = replicas[0]
+            drive, _, repo_path = self._mounted_drive(folder, replica["drive_target_id"])
+            self._validate_repository_identity(drive, repo_path, folder["id"], operation_id)
+            last_report_at = 0.0
+
+            def report(ratio, message, eta_seconds=None):
+                nonlocal last_report_at
+                now = time.monotonic()
+                # Avoid thousands of SQLite progress commits / terminal lines
+                # for multi-GB files while still checking cancellation promptly.
+                if progress and (ratio == 0 or ratio >= 0.9 or now - last_report_at >= 0.2):
+                    last_report_at = now
+                    progress((index + ratio) / len(files), message, None)
+
+            digest = hashlib.sha256()
+            report(0, "Reading local contents for identity repair")
+            # Do not follow a last-moment symlink replacement.
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(fd, "rb") as local:
+                opened = os.fstat(local.fileno())
+                if (opened.st_dev, opened.st_ino) != (before["device"], before["inode"]):
+                    raise ProtectionError("Source changed while opening it for identity repair")
+                for chunk in iter(lambda: local.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                    report(0.25, "Reading local contents for identity repair")
+            try:
+                archived_digest = self.restic.hash_snapshot_file(
+                    repo_path, folder["id"], replica["snapshot_id"], entry["relative_path"],
+                    operation_id=operation_id, progress=report,
+                )
+            except ResticError as exc:
+                raise ProtectionError(str(exc)) from exc
+            report(0.9, "Checking local identity before saving")
+            _safe_source_path(source, entry["relative_path"])
+            if self._local_fingerprint(path) != before:
+                raise ProtectionError("Source changed during identity repair; no identity was updated for this file")
+            if digest.hexdigest() != archived_digest:
+                raise ProtectionError(
+                    "Local contents do not match the verified backup; no identity was updated. "
+                    f"Index and back up the changed file: {entry['relative_path']}"
+                )
+            # Record the byte comparison evidence without changing replica credit.
+            ActionExecutor().log_action(
+                "REPAIR_IDENTITY", path, size=entry["size"], success=True,
+                details={"file_id": entry["id"], "operation_id": operation_id,
+                         "repository_id": replica["repository_id"],
+                         "snapshot_id": replica["snapshot_id"], "sha256": archived_digest,
+                         "source_volume_uuid": before["source_volume_uuid"]},
+            )
+            self.repository.set_file_state(entry["id"], entry["local_state"], fingerprint=before)
+            repaired.append(entry["id"])
+            report(1, f"Repaired {len(repaired)}/{len(files)} local identities")
+        return {"repaired": len(repaired), "file_ids": repaired, "files_deleted": 0}
+
     def evict(
         self,
         folder_id_or_name: str,
@@ -750,6 +855,7 @@ class ProtectionService:
             original = _safe_source_path(source, file_info["relative_path"])
             staged = _safe_source_path(staging_root, file_info["relative_path"])
             try:
+                operation_fingerprint = self._local_fingerprint(original)
                 self._validate_entries(source, [file_info])
                 receipts = [
                     {
@@ -768,8 +874,15 @@ class ProtectionService:
                         "Verified replica coverage changed after the eviction preview"
                     )
                 staged.parent.mkdir(parents=True, exist_ok=True)
+                if self._local_fingerprint(original) != operation_fingerprint:
+                    raise ProtectionError("Source changed during eviction")
                 self.repository.set_file_state(file_info["id"], "evicting", staged)
                 os.replace(original, staged)
+                if not _fingerprint_matches(
+                    _stat_fingerprint(staged), operation_fingerprint,
+                    ("size", "mtime_ns", "inode", "device"),
+                ):
+                    raise ProtectionError("Source identity changed while staging eviction")
                 staged.unlink()
                 self.repository.set_file_state(file_info["id"], "evicted")
                 file_evidence = {"file_id": file_info["id"], "receipts": receipts}
@@ -942,7 +1055,7 @@ class ProtectionService:
                             self.repository.set_file_state(
                                 file_info["id"],
                                 "restored",
-                                fingerprint=_stat_fingerprint(target),
+                                fingerprint=self._local_fingerprint(target),
                             )
                     except Exception:
                         if destination is None:
@@ -950,7 +1063,7 @@ class ProtectionService:
                                 self.repository.set_file_state(
                                     file_info["id"],
                                     "restored",
-                                    fingerprint=_stat_fingerprint(target),
+                                    fingerprint=self._local_fingerprint(target),
                                 )
                             else:
                                 self.repository.set_file_state(
@@ -1259,17 +1372,50 @@ class ProtectionService:
     def _validate_entries(
         self, source: Path, entries: Iterable[Dict[str, Any]]
     ) -> None:
+        volume_ids: Dict[int, str] = {}
         for entry in entries:
             path = _safe_source_path(source, entry["relative_path"])
             try:
                 fingerprint = _stat_fingerprint(path)
             except OSError as exc:
                 raise ProtectionError(f"Source changed or disappeared: {entry['relative_path']}") from exc
-            for field in ("size", "mtime_ns", "ctime_ns", "inode", "device"):
-                if int(fingerprint[field]) != int(entry[field]):
-                    raise ProtectionError(
-                        f"Source changed after indexing: {entry['relative_path']}"
-                    )
+            changes = [field for field in ("size", "mtime_ns", "ctime_ns", "inode")
+                       if int(fingerprint[field]) != int(entry[field])]
+            if changes:
+                raise ProtectionError(
+                    f"Source changed after indexing ({', '.join(changes)}): {entry['relative_path']}. "
+                    "Use Repair local identity to compare with a backup, or index and back up changed contents."
+                )
+            if not entry.get("source_volume_uuid"):
+                explanation = (
+                    "Filesystem device number changed" if fingerprint["device"] != entry["device"]
+                    else "Legacy catalog has no persistent source volume identity"
+                )
+                raise ProtectionError(
+                    f"{explanation}: {entry['relative_path']}. Connect an enrolled backup disk "
+                    "and use Repair local identity (protect repair-identity)."
+                )
+            device = fingerprint["device"]
+            if device not in volume_ids:
+                volume_ids[device] = self._source_volume_uuid(path)
+            if volume_ids[device] != entry["source_volume_uuid"]:
+                raise ProtectionError(
+                    f"Source volume changed: {entry['relative_path']}. "
+                    "Use Repair local identity to compare with an enrolled backup before eviction."
+                )
+
+    def _source_volume_uuid(self, path: Path) -> str:
+        try:
+            return self.volumes.source_volume_uuid(path)
+        except (VolumeError, OSError) as exc:
+            raise ProtectionError(f"Cannot verify persistent source volume identity: {exc}") from exc
+
+    def _local_fingerprint(self, path: Path) -> Dict[str, Any]:
+        fingerprint = _stat_fingerprint(path)
+        fingerprint["source_volume_uuid"] = self._source_volume_uuid(path)
+        if _stat_fingerprint(path) != {k: v for k, v in fingerprint.items() if k != "source_volume_uuid"}:
+            raise ProtectionError("Source changed while identifying its volume")
+        return fingerprint
 
     def _selected_files(
         self,
@@ -1347,6 +1493,9 @@ def _manifest_digest(entries: Iterable[Dict[str, Any]]) -> str:
                 "device",
             )
         }
+        if entry.get("source_volume_uuid"):
+            canonical.pop("device")
+            canonical["source_volume_uuid"] = entry["source_volume_uuid"]
         digest.update(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode())
         digest.update(b"\n")
     return digest.hexdigest()
@@ -1406,7 +1555,13 @@ def _fingerprint_matches(
 def _safe_source_path(root: Path, relative_path: str) -> Path:
     if not relative_path or Path(relative_path).is_absolute():
         raise ProtectionError("Catalog contains an unsafe absolute or empty path")
-    candidate = (root / relative_path).resolve(strict=False)
+    unresolved = root / relative_path
+    for component in (unresolved, *unresolved.parents):
+        if component == root:
+            break
+        if component.is_symlink():
+            raise ProtectionError("Protected file paths must not traverse symbolic links")
+    candidate = unresolved.resolve(strict=False)
     try:
         candidate.relative_to(root.resolve(strict=False))
     except ValueError as exc:

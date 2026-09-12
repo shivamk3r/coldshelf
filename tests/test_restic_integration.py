@@ -4,6 +4,7 @@ import os
 import json
 import shutil
 import uuid
+import hashlib
 
 import pytest
 
@@ -76,6 +77,10 @@ def test_real_restic_backup_check_catalog_and_restore(tmp_path):
         entries,
     )
     runner.check(repository, folder_id)
+    assert runner.hash_snapshot_file(
+        repository, folder_id, snapshot_id, "nested/sample.bin",
+        operation_id="integration-compare",
+    ) == hashlib.sha256(b"real restic round trip").hexdigest()
     runner.restore(
         repository,
         folder_id,

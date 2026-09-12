@@ -12,7 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 # Keep the original catalog, replica receipts, and offloaded-file restore records.
 DEFAULT_PROTECTION_DB_PATH = Path.home() / ".disk-space-manager-protected.sqlite3"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 VERIFIED_REPLICA_STATES = frozenset({"structural_checked", "full_checked"})
 
 
@@ -34,7 +34,7 @@ class ProtectionRepository:
         self.db_path.chmod(0o600)
         with self._read() as conn:
             version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-            if version not in {0, 1, SCHEMA_VERSION}:
+            if version not in {0, 1, 2, SCHEMA_VERSION}:
                 raise RuntimeError(
                     f"Unsupported protected-folder database version {version}; "
                     f"expected {SCHEMA_VERSION}"
@@ -176,6 +176,10 @@ class ProtectionRepository:
                     ADD COLUMN diagnostics_json TEXT NOT NULL DEFAULT '{}'
                     """
                 )
+            file_columns = {row[1] for row in conn.execute("PRAGMA table_info(file_versions)")}
+            if "source_volume_uuid" not in file_columns:
+                # NULL is deliberately not backfilled from today's mounted disk.
+                conn.execute("ALTER TABLE file_versions ADD COLUMN source_volume_uuid TEXT")
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def create_folder(
@@ -442,8 +446,8 @@ class ProtectionRepository:
                         INSERT INTO file_versions (
                             id, protected_folder_id, relative_path, file_type, size,
                             mtime_ns, ctime_ns, inode, device, local_state,
-                            is_current, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', 1, ?, ?)
+                            is_current, created_at, updated_at, source_volume_uuid
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', 1, ?, ?, ?)
                         """,
                         (
                             version_id,
@@ -457,6 +461,7 @@ class ProtectionRepository:
                             int(entry["device"]),
                             now,
                             now,
+                            entry.get("source_volume_uuid"),
                         ),
                     )
                 version_ids.append(version_id)
@@ -762,7 +767,7 @@ class ProtectionRepository:
         file_id: str,
         local_state: str,
         staged_path: Optional[Path] = None,
-        fingerprint: Optional[Dict[str, int]] = None,
+        fingerprint: Optional[Dict[str, Any]] = None,
     ) -> None:
         fields = ["local_state = ?", "staged_path = ?", "updated_at = ?"]
         values: List[Any] = [
@@ -774,6 +779,9 @@ class ProtectionRepository:
             for name in ("size", "mtime_ns", "ctime_ns", "inode", "device"):
                 fields.append(f"{name} = ?")
                 values.append(int(fingerprint[name]))
+            if "source_volume_uuid" in fingerprint:
+                fields.append("source_volume_uuid = ?")
+                values.append(fingerprint["source_volume_uuid"])
         values.append(file_id)
         with self._write() as conn:
             conn.execute(
@@ -1102,7 +1110,12 @@ class ProtectionRepository:
 
 
 def _same_fingerprint(row: sqlite3.Row, entry: Dict[str, Any]) -> bool:
-    return all(
+    volume_uuid = row["source_volume_uuid"]
+    same_volume = (
+        volume_uuid == entry.get("source_volume_uuid")
+        if volume_uuid else not entry.get("source_volume_uuid") and row["device"] == entry["device"]
+    )
+    return same_volume and all(
         row[field] == entry[field]
         for field in (
             "file_type",
@@ -1110,7 +1123,6 @@ def _same_fingerprint(row: sqlite3.Row, entry: Dict[str, Any]) -> bool:
             "mtime_ns",
             "ctime_ns",
             "inode",
-            "device",
         )
     )
 

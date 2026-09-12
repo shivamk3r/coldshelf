@@ -1,6 +1,7 @@
 """Strict subprocess adapter for the user-installed Restic executable."""
 
 import json
+import hashlib
 import math
 import os
 import queue
@@ -10,6 +11,7 @@ import signal
 import subprocess
 import sys
 import threading
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
@@ -421,6 +423,49 @@ class ResticRunner:
         finally:
             with self._lock:
                 self._active.pop(operation_id, None)
+
+    def hash_snapshot_file(
+        self, repository: Path, folder_id: str, snapshot_id: str,
+        relative_path: str, *, operation_id: str,
+        progress: Optional[ResticProgressCallback] = None,
+    ) -> str:
+        """Hash authenticated dump bytes without buffering the file in memory."""
+        digest = hashlib.sha256()
+        # Keep stderr out of the data stream and avoid a full stderr pipe
+        # deadlocking a large dump. No restored file contents touch disk.
+        with tempfile.TemporaryFile() as errors:
+            try:
+                process = self._popen_factory(
+                    [self.binary, "dump", snapshot_id, f"/{relative_path}"],
+                    env=self._environment(repository, folder_id),
+                    stdout=subprocess.PIPE, stderr=errors,
+                )
+            except FileNotFoundError as exc:
+                raise ResticError("Restic executable is unavailable") from exc
+            with self._lock:
+                self._active[operation_id] = process
+            try:
+                assert process.stdout is not None
+                for chunk in iter(lambda: process.stdout.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                    if progress:
+                        progress(0.5, "Comparing backup contents", None)
+                exit_code = process.wait()
+                if exit_code != 0:
+                    if exit_code == 130:
+                        raise ResticError("Restic operation was cancelled", 130)
+                    errors.seek(0)
+                    raise ResticError(_safe_error(errors.read(8192).decode(errors="replace")), exit_code)
+            except BaseException:
+                _interrupt_process(process)
+                _wait_or_terminate(process)
+                raise
+            finally:
+                if process.stdout is not None:
+                    process.stdout.close()
+                with self._lock:
+                    self._active.pop(operation_id, None)
+        return digest.hexdigest()
 
     def _environment(
         self, repository: Optional[Path], folder_id: Optional[str]

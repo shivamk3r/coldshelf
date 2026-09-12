@@ -155,6 +155,45 @@ test("shows replica cards and sends catalog file IDs for bulk actions", async ()
   );
 });
 
+test("repairs only selected files and requires an enrolled connected disk", async () => {
+  render(<ProtectedFolders token="secret" />);
+  const repair = await screen.findByRole("button", { name: "Repair local identity" });
+  expect(repair).toBeDisabled();
+  await userEvent.click(screen.getByLabelText("Select video.bin"));
+  expect(repair).toBeEnabled();
+  await userEvent.click(repair);
+  expect(api.createProtectionOperation).toHaveBeenCalledWith(
+    "secret", "folder-1", { kind: "repair_identity", file_ids: ["file-1"] }
+  );
+});
+
+test("explains blocked identity without raw JSON and prevents zero-file eviction", async () => {
+  let notify: ((operation: Awaited<ReturnType<typeof api.createProtectionOperation>>) => void) | undefined;
+  vi.mocked(api.openProtectionEvents).mockImplementation((_token, _id, callback) => {
+    notify = callback;
+    return { close: vi.fn(), addEventListener: vi.fn() } as unknown as EventSource;
+  });
+  render(<ProtectedFolders token="secret" />);
+  await screen.findByText("video.bin");
+  await userEvent.click(screen.getByLabelText("Select video.bin"));
+  await userEvent.click(screen.getByRole("button", { name: "Preview selected eviction" }));
+  await act(async () => {
+    notify?.({
+      id: "preview", protected_folder_id: folder.id, kind: "evict", status: "completed",
+      request: { dry_run: true }, progress_percent: 100, progress_message: "Complete",
+      diagnostics: {}, cancel_requested: false, created_at: "now",
+      result: {
+        eligible_count: 0, confirmation_phrase: "EVICT Large Files 0",
+        blocked: [{ id: "file-1", relative_path: "video.bin", reasons: ["Filesystem device number changed. Use Repair local identity."] }]
+      }
+    });
+  });
+  await userEvent.click(screen.getByText("Why files are blocked"));
+  expect(screen.getByText("Filesystem device number changed. Use Repair local identity.")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Evict eligible files now" })).toBeDisabled();
+  expect(screen.queryByText(/"relative_path"/)).not.toBeInTheDocument();
+});
+
 test("polls mounted volumes every five seconds only while mounted", async () => {
   vi.useFakeTimers();
   const { unmount } = render(<ProtectedFolders token="secret" />);

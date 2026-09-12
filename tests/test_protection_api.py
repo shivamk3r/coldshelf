@@ -1,5 +1,7 @@
 import json
 import time
+import sqlite3
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -47,6 +49,31 @@ def _app(tmp_path):
         token="secret",
     )
     return app, source, volume, restic, volumes
+
+
+def test_identity_repair_api_requires_ids_and_preserves_backups(tmp_path, monkeypatch):
+    monkeypatch.setattr("coldshelf.executor.ACTION_LOG_FILE", tmp_path / "actions.log")
+    app, source, volume, _, _ = _app(tmp_path)
+    service = app.state.protection_service
+    folder = service.create_folder("Repair", source, required_copies=1)
+    service.confirm_recovery_key(folder["id"], folder["recovery_key"])
+    drive = service.enroll_drive(folder["id"], Path(volume.mount_path))
+    service.index_folder(folder["id"])
+    service.backup(folder["id"], drive["id"], operation_id="backup")
+    entry = service.repository.list_all_files(folder["id"])[0]
+    with sqlite3.connect(service.repository.db_path) as conn:
+        conn.execute("UPDATE file_versions SET source_volume_uuid=NULL, device=device+1")
+    endpoint = f"/api/protection/folders/{folder['id']}/operations"
+    with TestClient(app) as client:
+        assert client.post(endpoint, headers=_auth(), json={"kind": "repair_identity"}).status_code == 422
+        response = client.post(endpoint, headers=_auth(),
+                               json={"kind": "repair_identity", "file_ids": [entry["id"]]})
+        assert response.status_code == 200, response.text
+        result = _wait_for_operation(client, response.json()["id"])
+        assert result["status"] == "completed", result
+        assert result["result"]["repaired"] == 1
+        assert (source / "catalog.bin").read_bytes() == b"catalog data"
+        assert service.eviction_preview(folder["id"], [entry["id"]])["eligible_count"] == 1
 
 
 def test_authenticated_protected_folder_recovery_confirmation_catalog_and_job(tmp_path):

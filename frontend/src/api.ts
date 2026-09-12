@@ -369,6 +369,7 @@ export function enrollProtectedDrive(
 
 export type ProtectionOperationPayload =
   | { kind: "index" }
+  | { kind: "repair_identity"; file_ids: string[] }
   | { kind: "backup"; drive_target_id: string }
   | { kind: "verify"; drive_target_id: string; full?: boolean; file_ids?: string[] }
   | {

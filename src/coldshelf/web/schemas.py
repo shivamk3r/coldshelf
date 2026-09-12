@@ -323,6 +323,10 @@ class RestoreOperationRequest(_OperationBase):
         return self
 
 
+class RepairIdentityOperationRequest(RestoreOperationRequest):
+    kind: Literal["repair_identity"]
+
+
 ProtectionOperationRequest = Annotated[
     Union[
         IndexOperationRequest,
@@ -330,6 +334,7 @@ ProtectionOperationRequest = Annotated[
         VerifyOperationRequest,
         EvictOperationRequest,
         RestoreOperationRequest,
+        RepairIdentityOperationRequest,
     ],
     Field(discriminator="kind"),
 ]

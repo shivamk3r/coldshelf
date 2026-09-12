@@ -123,7 +123,7 @@ def test_schema_one_operation_history_migrates_in_place(tmp_path):
     assert operation["eta_seconds"] is None
     assert operation["diagnostics"] == {}
     with sqlite3.connect(db_path) as migrated:
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 3
 
 
 def test_failed_cancelled_and_interrupted_operations_keep_diagnostics(tmp_path):

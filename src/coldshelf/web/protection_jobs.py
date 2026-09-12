@@ -125,6 +125,11 @@ class ProtectionOperationManager:
                     operation_id=operation_id,
                     progress=progress,
                 )
+            elif request.kind == "repair_identity":
+                result = self.service.repair_local_identity(
+                    folder_id, file_ids=request.file_ids,
+                    operation_id=operation_id, progress=progress,
+                )
             elif request.kind == "restore":
                 result = self.service.restore(
                     folder_id,

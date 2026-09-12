@@ -333,6 +333,7 @@ def test_legacy_ds_store_generation_is_retired_without_accepting_changed_files(
             "ctime_ns": file_stat.st_ctime_ns,
             "inode": file_stat.st_ino,
             "device": file_stat.st_dev,
+            "source_volume_uuid": volumes.source_uuid,
         }
 
     legacy_generation = service.repository.save_generation(

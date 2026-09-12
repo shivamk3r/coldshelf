@@ -1,4 +1,5 @@
 import json
+import hashlib
 import plistlib
 import signal
 import subprocess
@@ -213,3 +214,48 @@ def test_diskutil_plist_volume_uuid_and_rename(tmp_path):
     assert volume.volume_uuid == "stable-volume-uuid"
     assert volume.name == "Renamed HDD"
     assert provider.find_by_uuid("stable-volume-uuid") == volume
+
+
+@pytest.mark.parametrize("exit_code", [0, 3, 130])
+def test_snapshot_hash_requires_successful_complete_binary_dump(tmp_path, exit_code):
+    executable = tmp_path / "binary-restic"
+    executable.write_text(
+        "#!/usr/bin/env python3\nimport sys\n"
+        "sys.stdout.buffer.write(b'\\x00\\xffpayload' * 200000)\n"
+        "sys.stderr.write('simulated error\\n' * 20000)\n"
+        f"sys.exit({exit_code})\n"
+    )
+    executable.chmod(0o755)
+    runner = ResticRunner(binary=str(executable))
+    if exit_code:
+        with pytest.raises(ResticError) as raised:
+            runner.hash_snapshot_file(tmp_path, "folder", "snapshot", "a.bin", operation_id="hash")
+        assert raised.value.exit_code == exit_code
+    else:
+        assert runner.hash_snapshot_file(
+            tmp_path, "folder", "snapshot", "a.bin", operation_id="hash"
+        ) == hashlib.sha256(b"\x00\xffpayload" * 200000).hexdigest()
+    assert not runner._active
+
+
+def test_source_uuid_uses_actual_file_path(tmp_path, monkeypatch):
+    seen = []
+    def identify(path):
+        seen.append(path)
+        return "source-uuid"
+    monkeypatch.setattr("coldshelf.protection.volumes._source_volume_uuid", identify)
+    provider = MacOSVolumeProvider(system=lambda: "Darwin")
+    assert provider.source_volume_uuid(tmp_path / "file.bin") == "source-uuid"
+    assert seen == [tmp_path / "file.bin"]
+
+
+def test_native_source_uuid_is_stable_for_files_on_same_volume(tmp_path):
+    import sys
+    import uuid
+    if sys.platform != "darwin":
+        pytest.skip("getattrlist is a macOS API")
+    file = tmp_path / "file.bin"
+    file.write_bytes(b"test")
+    provider = MacOSVolumeProvider()
+    assert uuid.UUID(provider.source_volume_uuid(file)).int != 0
+    assert provider.source_volume_uuid(file) == provider.source_volume_uuid(tmp_path)
