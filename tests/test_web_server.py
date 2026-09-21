@@ -4,7 +4,43 @@ from types import SimpleNamespace
 
 from click.testing import CliRunner
 
+from coldshelf.cli import cli
 from coldshelf.web import server as web_server
+
+
+def test_cli_help_exposes_web_options_without_starting_server(monkeypatch):
+    def unexpected_startup(**kwargs):
+        raise AssertionError("Help must not start the server")
+
+    monkeypatch.setattr(web_server.main, "callback", unexpected_startup)
+    runner = CliRunner()
+    root_help = runner.invoke(cli, ["--help"])
+    assert root_help.exit_code == 0, root_help.output
+    assert "web" in root_help.output
+
+    web_help = runner.invoke(cli, ["web", "--help"])
+    assert web_help.exit_code == 0, web_help.output
+    assert "cli web [OPTIONS]" in web_help.output
+    for option in (
+        "--host", "--port", "--dev", "--frontend-port", "--db-path",
+        "--token", "--open", "--no-open",
+    ):
+        assert option in web_help.output
+
+
+def test_cli_rejects_web_dry_run_before_startup(monkeypatch):
+    def unexpected_startup(**kwargs):
+        raise AssertionError("Dry-run rejection must precede server startup")
+
+    def unexpected_banner():
+        raise AssertionError("Web must not display a misleading dry-run banner")
+
+    monkeypatch.setattr(web_server.main, "callback", unexpected_startup)
+    monkeypatch.setattr("coldshelf.cli.ui.show_dry_run_banner", unexpected_banner)
+    result = CliRunner().invoke(cli, ["--dry-run", "web"])
+    assert result.exit_code == 2, result.output
+    assert "--dry-run is not supported for web" in result.output
+    assert "read-only" in result.output
 
 
 def test_default_ports_are_project_specific():
@@ -78,8 +114,8 @@ def test_cli_open_is_default_and_no_open_skips_browser_thread(tmp_path, monkeypa
 
     runner = CliRunner()
     opened = runner.invoke(
-        web_server.main,
-        ["--db-path", str(tmp_path / "open.sqlite3"), "--token", "secret"],
+        cli,
+        ["web", "--db-path", str(tmp_path / "open.sqlite3"), "--token", "secret"],
     )
     assert opened.exit_code == 0, opened.output
     assert "Open: http://127.0.0.1:38765/?token=secret" in opened.output
@@ -88,8 +124,13 @@ def test_cli_open_is_default_and_no_open_skips_browser_thread(tmp_path, monkeypa
     assert created_threads[0].started is True
 
     not_opened = runner.invoke(
-        web_server.main,
+        cli,
         [
+            "web",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "42001",
             "--db-path",
             str(tmp_path / "closed.sqlite3"),
             "--token",
@@ -98,6 +139,7 @@ def test_cli_open_is_default_and_no_open_skips_browser_thread(tmp_path, monkeypa
         ],
     )
     assert not_opened.exit_code == 0, not_opened.output
+    assert "Open: http://127.0.0.1:42001/?token=secret" in not_opened.output
     assert len(created_threads) == 1
 
 
@@ -158,8 +200,9 @@ def test_dev_cli_uses_new_defaults_and_preserves_port_overrides(
 
     runner = CliRunner()
     default_result = runner.invoke(
-        web_server.main,
+        cli,
         [
+            "web",
             "--dev",
             "--db-path",
             str(tmp_path / "default.sqlite3"),
@@ -181,8 +224,9 @@ def test_dev_cli_uses_new_defaults_and_preserves_port_overrides(
     assert processes[-1].wait_timeout == 5
 
     override_result = runner.invoke(
-        web_server.main,
+        cli,
         [
+            "web",
             "--dev",
             "--port",
             "42001",

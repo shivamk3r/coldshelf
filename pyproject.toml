@@ -21,10 +21,6 @@ dependencies = [
 
 [project.scripts]
 coldshelf = "coldshelf.cli:cli"
-coldshelf-web = "coldshelf.web.server:main"
-# Keep existing launch scripts working during the rename.
-disk-space-manager = "coldshelf.cli:cli"
-disk-space-manager-web = "coldshelf.web.server:main"
 
 [build-system]
 requires = ["setuptools>=61"]

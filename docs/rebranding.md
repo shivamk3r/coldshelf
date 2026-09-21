@@ -2,8 +2,16 @@
 
 Disk Space Manager is now coldshelf. The distribution, Python package, CLI,
 web dashboard, and GitHub repository use the new name. Run `uv sync` from the
-renamed checkout, then `uv run coldshelf-web` or `uv run coldshelf --help`.
-The former CLI commands remain aliases; Python imports use `coldshelf`.
+renamed checkout, then `uv run coldshelf web` or `uv run coldshelf --help`.
+For access from any directory, run `uv tool install --editable .` in the
+checkout, then use `coldshelf` and `coldshelf web`. Python imports use `coldshelf`.
+
+Only `coldshelf` is installed as an executable. Replace `disk-space-manager`
+with `coldshelf`, and replace both `coldshelf-web` and
+`disk-space-manager-web` with `coldshelf web`. The former executable aliases
+have been removed. After updating an existing installation, run
+`uv tool install --editable . --reinstall-package coldshelf` from the checkout
+to refresh its commands. Use `uv sync` to refresh checkout commands.
 
 ## Existing protected folders
 
@@ -28,7 +36,7 @@ Restic repositories. Moving the checkout does not relocate those files.
 
 ## Restore offloaded files
 
-Connect a healthy enrolled disk, start `uv run coldshelf-web`, and use
+Connect a healthy enrolled disk, start `uv run coldshelf web`, and use
 **Protected folders → Restore**. The same catalog entries and recovery key work.
 For the CLI, use:
 
@@ -41,7 +49,8 @@ uv run coldshelf protect restore "<folder-name>" --file-id <FILE-ID> \
 Restores still refuse to overwrite an existing destination. The full
 [protected-folder runbook](protected-folders.md) covers alternate destinations,
 fresh-Mac catalog recovery, and standalone Restic recovery. Old saved recovery
-instructions remain valid because disk paths and encryption are unchanged.
+instructions remain valid after replacing the command names above because
+disk paths and encryption are unchanged.
 
 ## Environment and browser compatibility
 

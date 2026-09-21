@@ -8,6 +8,7 @@ import click
 from . import ui, workflows
 from .config import DEFAULT_AGE_THRESHOLD_MONTHS
 from .protection.cli import protect
+from .web.server import main as web
 
 
 @click.group()
@@ -19,6 +20,11 @@ from .protection.cli import protect
 @click.pass_context
 def cli(ctx, dry_run: bool) -> None:
     """coldshelf - Clean, analyze, and archive files."""
+    if dry_run and ctx.invoked_subcommand == "web":
+        raise click.UsageError(
+            "--dry-run is not supported for web; it does not make dashboard "
+            "operations read-only. Start the dashboard with 'coldshelf web'."
+        )
     ctx.ensure_object(dict)
     ctx.obj["dry_run"] = dry_run
     if dry_run:
@@ -132,3 +138,4 @@ def full_report(
 
 
 cli.add_command(protect)
+cli.add_command(web, name="web")

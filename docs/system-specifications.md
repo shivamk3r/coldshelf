@@ -7,7 +7,7 @@ application with two supported interfaces:
 
 - A Click/Rich CLI.
 - An optional FastAPI + React web dashboard served by
-  `coldshelf-web`.
+  `coldshelf web`.
 
 Runtime requirements:
 
@@ -127,7 +127,7 @@ Behavior:
 
 ## Web Command
 
-### `coldshelf-web`
+### `coldshelf web`
 
 Options:
 
@@ -635,7 +635,7 @@ Useful manual checks:
 
 ```bash
 uv run coldshelf full-report --path tests --age-months 6
-uv run coldshelf-web --help
+uv run coldshelf web --help
 uv run python main.py full-report --path tests --age-months 6
 uv run python -m coldshelf full-report --path tests --age-months 6
 uv run python scripts/profile_report_generation.py --file-count 10000 --max-bytes 50000000

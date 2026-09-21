@@ -10,7 +10,7 @@ repository root stays small: `main.py` is only a compatibility shim for
 ```bash
 uv run coldshelf ...
 uv run python -m coldshelf ...
-uv run coldshelf-web
+uv run coldshelf web
 ```
 
 The CLI runtime pipeline is still intentionally direct:
@@ -223,7 +223,7 @@ helpers, and archive target path construction.
 
 Contains the optional FastAPI application and built React assets.
 
-- `server.py` exposes `coldshelf-web`, prints the tokenized URL, opens
+- `server.py` exposes `coldshelf web`, prints the tokenized URL, opens
   it after Uvicorn is ready by default, and can start Vite in `--dev` mode. It
   owns web command options for host, port, frontend port, SQLite path, token
   override, and `--open/--no-open`.
@@ -274,7 +274,7 @@ Contains the React/Vite dashboard source.
 - `vite.config.ts` builds production assets into
   `src/coldshelf/web/static/`.
 
-The checked-in static build is what `coldshelf-web` serves outside
+The checked-in static build is what `coldshelf web` serves outside
 `--dev` mode. When frontend source changes, rebuild the assets with
 `npm run build` from `frontend/`.
 
@@ -377,7 +377,7 @@ This command is read-only.
 
 This command is read-only.
 
-### `coldshelf-web`
+### `coldshelf web`
 
 1. Resolve or create an API token from `--token`,
    `COLDSHELF_WEB_TOKEN` (with `DISK_SPACE_MANAGER_WEB_TOKEN` as a fallback), or `~/.disk-space-manager-web-token`.

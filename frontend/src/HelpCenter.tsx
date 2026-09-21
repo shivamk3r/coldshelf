@@ -17,7 +17,7 @@ const ARTICLES: HelpArticle[] = [
     title: "Start and connect to the dashboard",
     summary: "Run one local command, then work entirely in the authenticated browser dashboard.",
     steps: [
-      "From the project folder, run: uv run coldshelf-web",
+      "After installing with uv tool install --editable . from the project folder, run from any directory: coldshelf web",
       "The server prints an authenticated local URL and normally opens it automatically.",
       "If a browser cannot be opened, copy the printed URL. Use --no-open when you prefer that behavior.",
       "Keep the token private. It authorizes filesystem reports and confirmed actions on this computer."
@@ -248,7 +248,7 @@ export function HelpCenter({ initialArticle = "start", onOpenReports, onOpenProt
 }
 
 function renderCommand(text: string) {
-  const command = "uv run coldshelf-web";
+  const command = "coldshelf web";
   if (!text.includes(command)) return text;
   const [before, after] = text.split(command);
   return <>{before}<code>{command}</code>{after}</>;

@@ -34,7 +34,7 @@ The main workflows are:
 - Generate a comprehensive read-only report with `full-report`, including scan
   progress, cache candidates, old-file candidates, duplicate candidates, and
   potential savings.
-- Start `coldshelf-web` to create report jobs, watch live progress,
+- Start `coldshelf web` to create report jobs, watch live progress,
   review charts/tables, select persisted candidates, and run dry-run or
   confirmed clean/archive actions without returning to the CLI.
 - Browse immediate files and recursively sized immediate folders, starting at
@@ -81,7 +81,7 @@ prompts. The root `main.py` is only a checkout compatibility shim.
 
 `src/coldshelf/web/` owns the optional FastAPI app:
 
-- `server.py` exposes the `coldshelf-web` command, token setup,
+- `server.py` exposes the `coldshelf web` command, token setup,
   default host/port, database path, browser opening, and Vite dev mode.
 - `app.py` declares the HTTP API, token dependencies, SSE progress endpoint,
   and static frontend serving.

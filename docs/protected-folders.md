@@ -214,7 +214,7 @@ to restore a copy elsewhere.
 ## 9. Dashboard workflow
 
 ```bash
-uv run coldshelf-web
+uv run coldshelf web
 ```
 
 The command opens the authenticated dashboard automatically unless `--no-open`

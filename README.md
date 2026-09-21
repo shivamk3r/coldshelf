@@ -41,10 +41,11 @@ CLI.
 
 ## Upgrading from Disk Space Manager
 
-The project is now **coldshelf**. Use `uv run coldshelf` for the CLI,
-`uv run coldshelf-web` for the dashboard, or `uv run python -m coldshelf`.
-The old `disk-space-manager` and `disk-space-manager-web` commands remain
-compatibility aliases. Python imports now use `coldshelf`.
+The project is now **coldshelf**, with one installed command: `coldshelf`.
+Use `coldshelf web` for the dashboard. The former `disk-space-manager`
+command is replaced by `coldshelf`; `coldshelf-web` and
+`disk-space-manager-web` are replaced by `coldshelf web`. Those executable
+aliases are no longer installed. Python imports use `coldshelf`.
 
 Existing protected folders and offloaded files require no migration or new
 backup. The local catalog, Keychain service, disk repository paths, snapshot
@@ -56,6 +57,12 @@ See [rebrand and recovery compatibility](docs/rebranding.md) for exact details.
 
 ## Installation
 
+If you do not have `uv` yet, install it with:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
 1. Clone this repository:
 
 ```bash
@@ -63,37 +70,69 @@ git clone https://github.com/shivamk3r/coldshelf.git
 cd coldshelf
 ```
 
-2. Sync dependencies:
+2. Install the command for your user account:
+
+```bash
+uv tool install --editable .
+```
+
+You can now run `coldshelf` from any directory, without activating a virtual
+environment or prefixing it with `uv run`. uv installs the tool and its
+dependencies in an isolated environment and exposes only the `coldshelf`
+command. This is an editable installation: Python source changes take effect
+on the next invocation. Keep the checkout at its installed location; reinstall
+from the new location if you move it. Frontend changes require a rebuild.
+
+If your shell cannot find `coldshelf`, run:
+
+```bash
+uv tool update-shell
+```
+
+Then restart your terminal. `uv tool dir --bin` shows the executable directory,
+and `uv tool list` shows installed tools. See [uv's tool installation
+guide](https://docs.astral.sh/uv/guides/tools/#installing-tools) for details.
+
+After dependency or command entry-point changes, reinstall from the checkout:
+
+```bash
+uv tool install --editable . --reinstall-package coldshelf
+```
+
+To remove the global command:
+
+```bash
+uv tool uninstall coldshelf
+```
+
+For repository development and tests, use the project's separate environment:
 
 ```bash
 uv sync
-```
-
-If you do not have `uv` yet, install it with:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+uv run coldshelf --help
+uv run coldshelf web --dev
 ```
 
 ## Usage
 
 ### CLI
 
-The preferred command is the installed package script:
+Run the installed command from any directory:
 
 ```bash
-uv run coldshelf --help
+coldshelf --help
 ```
 
-`uv run python main.py ...` is still available as a compatibility shim when
-running from a checkout.
+All examples below use the global installation. From a checkout, you can also
+use `uv run coldshelf ...` or `uv run python -m coldshelf ...`.
+`uv run python main.py ...` remains a checkout compatibility shim.
 
 ### Web Dashboard
 
 Start the packaged FastAPI and React application with one command:
 
 ```bash
-uv run coldshelf-web
+coldshelf web
 ```
 
 The server binds to `127.0.0.1` by default, prints its authenticated URL, waits
@@ -106,10 +145,10 @@ frontend from the Python package.
 Useful web server options:
 
 ```bash
-uv run coldshelf-web --host 127.0.0.1 --port 38765
-uv run coldshelf-web --db-path ~/.disk-space-manager-web.sqlite3
-uv run coldshelf-web --token <token>
-uv run coldshelf-web --no-open
+coldshelf web --host 127.0.0.1 --port 38765
+coldshelf web --db-path ~/.disk-space-manager-web.sqlite3
+coldshelf web --token <token>
+coldshelf web --no-open
 ```
 
 Packaged mode uses only port `38765` by default: FastAPI serves both the API
@@ -126,13 +165,16 @@ Server-Sent Events stream.
 For frontend/backend development, run:
 
 ```bash
-uv run coldshelf-web --dev
+coldshelf web --dev
 ```
 
 Development mode starts FastAPI and the Vite frontend together, using backend
 port `38765` and `--frontend-port 38766` by default. Both remain configurable
 with `--port` and `--frontend-port`. Use `--host 0.0.0.0` only when you
 intentionally want network access, and keep the token private.
+
+The CLI's `--dry-run` flag is not supported with `web`: it does not make the
+dashboard read-only. Use the dashboard's operation previews and confirmations.
 
 The dashboard opens on **Home**, where a primary-storage summary shows total,
 used, and available space for the filesystem containing the user's home folder.
@@ -237,13 +279,13 @@ Create a set, paste the one-time recovery key back when prompted, then enroll,
 index, and back up one mounted disk at a time:
 
 ```bash
-uv run coldshelf protect create --name "Large Files" \
+coldshelf protect create --name "Large Files" \
   --path /Users/you/Archives/large-files --required-copies 2
-uv run coldshelf protect volumes
-uv run coldshelf protect enroll "Large Files" --mount-path /Volumes/HDD1
-uv run coldshelf protect index "Large Files"
-uv run coldshelf protect status "Large Files"
-uv run coldshelf protect backup "Large Files" --drive-id <HDD1-DRIVE-ID>
+coldshelf protect volumes
+coldshelf protect enroll "Large Files" --mount-path /Volumes/HDD1
+coldshelf protect index "Large Files"
+coldshelf protect status "Large Files"
+coldshelf protect backup "Large Files" --drive-id <HDD1-DRIVE-ID>
 ```
 
 Disconnect HDD1, connect and enroll HDD2, and repeat `backup` with HDD2's drive
@@ -254,9 +296,9 @@ Eviction always starts with a dry-run and uses catalog file IDs, not arbitrary
 paths:
 
 ```bash
-uv run coldshelf --dry-run protect evict "Large Files" --file-id <FILE-ID>
-uv run coldshelf protect evict "Large Files" --file-id <FILE-ID>
-uv run coldshelf protect restore "Large Files" --file-id <FILE-ID> \
+coldshelf --dry-run protect evict "Large Files" --file-id <FILE-ID>
+coldshelf protect evict "Large Files" --file-id <FILE-ID>
+coldshelf protect restore "Large Files" --file-id <FILE-ID> \
   --drive-id <CONNECTED-DRIVE-ID>
 ```
 
@@ -269,7 +311,7 @@ symlink or stub remains after eviction, and restore never overwrites a path.
 Local source volumes use persistent UUIDs so reboot device renumbering does not
 invalidate backup receipts. For an older catalog's identity mismatch, connect an
 enrolled backup disk and use **Repair local identity** on selected local files,
-or `uv run coldshelf protect repair-identity "Large Files" --file-id <FILE-ID>`.
+or `coldshelf protect repair-identity "Large Files" --file-id <FILE-ID>`.
 Repair compares local and archived contents before refreshing identity; it keeps
 the file and matching receipts intact. Preview eviction again after repair.
 
@@ -282,13 +324,13 @@ folder; registered protected paths are excluded from legacy mutations.
 Scan and analyze disk usage without making changes:
 
 ```bash
-uv run coldshelf analyze
+coldshelf analyze
 ```
 
 Scan a specific directory:
 
 ```bash
-uv run coldshelf analyze --path /path/to/directory
+coldshelf analyze --path /path/to/directory
 ```
 
 ### Clean Cache Files
@@ -296,13 +338,13 @@ uv run coldshelf analyze --path /path/to/directory
 Identify and remove cache files after confirmation:
 
 ```bash
-uv run coldshelf clean
+coldshelf clean
 ```
 
 With a custom age threshold:
 
 ```bash
-uv run coldshelf clean --age-months 3
+coldshelf clean --age-months 3
 ```
 
 ### Archive Old Files
@@ -310,26 +352,26 @@ uv run coldshelf clean --age-months 3
 Move old files to an auto-detected external drive:
 
 ```bash
-uv run coldshelf archive
+coldshelf archive
 ```
 
 Archive to a local folder:
 
 ```bash
-uv run coldshelf archive --target-path /path/to/archive/folder
+coldshelf archive --target-path /path/to/archive/folder
 ```
 
 Archive to a specific mounted external drive:
 
 ```bash
-uv run coldshelf archive --external-path /Volumes/MyDrive
-uv run coldshelf archive --external-path /media/$USER/MyDrive
+coldshelf archive --external-path /Volumes/MyDrive
+coldshelf archive --external-path /media/$USER/MyDrive
 ```
 
 With a custom age threshold:
 
 ```bash
-uv run coldshelf archive --age-months 12 --target-path ./my_archive
+coldshelf archive --age-months 12 --target-path ./my_archive
 ```
 
 ### Full Report
@@ -337,15 +379,15 @@ uv run coldshelf archive --age-months 12 --target-path ./my_archive
 Generate a comprehensive read-only report:
 
 ```bash
-uv run coldshelf full-report
+coldshelf full-report
 ```
 
 Duplicate and near-duplicate checks run by default. Skip both duplicate phases,
 or keep exact duplicates while skipping slower near-duplicate checks:
 
 ```bash
-uv run coldshelf full-report --no-duplicates
-uv run coldshelf full-report --no-near-duplicates
+coldshelf full-report --no-duplicates
+coldshelf full-report --no-near-duplicates
 ```
 
 ### Dry Run Mode
@@ -353,8 +395,8 @@ uv run coldshelf full-report --no-near-duplicates
 Preview mutating operations without changing files:
 
 ```bash
-uv run coldshelf --dry-run clean
-uv run coldshelf --dry-run archive
+coldshelf --dry-run clean
+coldshelf --dry-run archive
 ```
 
 ## Commands
@@ -365,7 +407,7 @@ uv run coldshelf --dry-run archive
 - `full-report` - Generate a comprehensive analysis report.
 - `protect` - Create, enroll, index, back up, verify, evict, restore, or recover
   a replicated protected folder.
-- `coldshelf-web` - Start the web dashboard and API.
+- `web` - Start the web dashboard and API.
 
 ## Options
 

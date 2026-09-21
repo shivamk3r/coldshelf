@@ -129,7 +129,7 @@ export function App() {
           ) : (
             <>
               <p>Start the server, then use its private token to connect:</p>
-              <code className="startup-command">uv run coldshelf-web</code>
+              <code className="startup-command">coldshelf web</code>
               {authError && <div className="alert" role="alert">{authError}</div>}
               <form
                 onSubmit={(event) => {
