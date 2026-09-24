@@ -7,6 +7,21 @@ from datetime import datetime
 from typing import Optional, Tuple
 
 
+def home_filesystem_scan_root() -> Path:
+    """Find the highest ancestor of Home on the same filesystem."""
+    current = Path.home().resolve()
+    try:
+        device = os.stat(current).st_dev
+        while current.parent != current:
+            parent = current.parent
+            if os.stat(parent).st_dev != device:
+                break
+            current = parent
+    except OSError:
+        pass
+    return current
+
+
 def format_size(size_bytes: int) -> str:
     """Format bytes into human-readable size string."""
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:

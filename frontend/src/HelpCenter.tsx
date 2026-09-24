@@ -25,6 +25,24 @@ const ARTICLES: HelpArticle[] = [
     notes: ["The server binds to 127.0.0.1 by default. Network mode should be enabled only intentionally."]
   },
   {
+    id: "storage",
+    category: "Storage",
+    title: "Understand whole-disk and Docker usage",
+    summary: "Compare filesystem capacity, measured folders, and Docker's separate usage report.",
+    steps: [
+      "Open Storage to see capacity for the filesystem containing Home and Docker's images, containers, volumes, and build cache.",
+      "Choose Scan filesystem to measure readable top-level folders. Permission errors and skipped mounts make the result partial.",
+      "Select one Docker category at a time, review eligible items or an older-than cutoff for cache, and run a preview before cleanup.",
+      "Type the exact confirmation phrase. The web dashboard gives 10 seconds to cancel before Docker cleanup starts."
+    ],
+    notes: [
+      "Docker category sizes and folder totals can overlap; do not add them to estimate total disk usage or guaranteed savings.",
+      "Only stopped containers, unreferenced images, and unlinked local volumes are eligible. Volume removal permanently deletes stored application data.",
+      "Docker build-cache pruning has no true dry-run. Its preview is an estimate and the server rechecks candidates before execution.",
+      "Only a local Docker daemon is supported. Docker Desktop data on macOS may not reconcile directly with host filesystem usage."
+    ]
+  },
+  {
     id: "browse",
     category: "Browse",
     title: "Browse folders by size",

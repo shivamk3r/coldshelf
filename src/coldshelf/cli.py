@@ -7,6 +7,7 @@ import click
 
 from . import ui, workflows
 from .config import DEFAULT_AGE_THRESHOLD_MONTHS
+from .docker_cli import docker_command, storage_command
 from .protection.cli import protect
 from .web.server import main as web
 
@@ -138,4 +139,6 @@ def full_report(
 
 
 cli.add_command(protect)
+cli.add_command(storage_command)
+cli.add_command(docker_command)
 cli.add_command(web, name="web")

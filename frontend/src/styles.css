@@ -173,6 +173,46 @@ details > summary { cursor: pointer; }
 .auth-note svg { flex: 0 0 auto; width: 16px; color: var(--amber); }
 
 .home-dashboard { display: grid; gap: 22px; }
+.storage-dashboard { display: grid; gap: 18px; }
+.storage-overview { display: grid; gap: 14px; padding: 22px; }
+.storage-overview h3 { margin: 0; display: flex; align-items: center; gap: 8px; }
+.storage-overview h3 svg, .storage-note svg { width: 18px; height: 18px; flex: 0 0 auto; }
+.storage-overview p { margin: 0; color: var(--muted); }
+.storage-section-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.storage-section-header p { margin-top: 6px; }
+.storage-section-header button, .docker-list-toolbar button, .docker-cleanup-actions button, .docker-action-status button, .storage-scan-progress button { padding: 8px 12px; }
+.storage-scan-progress, .storage-note { display: flex; align-items: center; gap: 8px; }
+.storage-folder-list { display: grid; gap: 5px; }
+.storage-folder-list button { display: flex; justify-content: space-between; gap: 12px; width: 100%; text-align: left; padding: 10px; }
+.storage-folder-list small { color: var(--muted); }
+.docker-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.docker-cards button { display: grid; gap: 5px; text-align: left; padding: 15px; min-width: 0; }
+.docker-cards button.active { border-color: var(--cyan); background: var(--control); }
+.docker-cards small { color: var(--muted); }
+.docker-list-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.docker-list-toolbar input { flex: 1 1 220px; min-width: 0; }
+.docker-cache-controls { display: grid; gap: 8px; }
+.docker-cache-controls select { margin-left: 8px; }
+.docker-cleanup-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.docker-item-list { display: grid; max-height: 440px; overflow: auto; border: 1px solid var(--control-border); border-radius: 8px; }
+.docker-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 11px; border-bottom: 1px solid var(--control-border); }
+.docker-item:last-child { border-bottom: 0; }
+.docker-item.blocked { opacity: .65; }
+.docker-item span { min-width: 0; overflow-wrap: anywhere; }
+.docker-item small { display: block; color: var(--muted); }
+.docker-review { display: flex; gap: 12px; padding: 22px; border-color: var(--rose); }
+.docker-review > svg { flex: 0 0 auto; }
+.docker-review > div { display: grid; gap: 12px; flex: 1; }
+.docker-review h3, .docker-review p { margin: 0; }
+.docker-review label { display: grid; gap: 6px; }
+.docker-review-items { max-height: 130px; overflow: auto; font-size: .85rem; overflow-wrap: anywhere; }
+.docker-action-status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 18px; }
+.docker-history-row { border-top: 1px solid var(--line); padding: 8px 0; overflow-wrap: anywhere; }
+.docker-history-row summary { cursor: pointer; }
+.docker-history-row p { margin: 6px 0 0 18px; font-size: .82rem; }
+.docker-history-row small { color: var(--muted); }
+@media (max-width: 850px) { .docker-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .docker-cards { grid-template-columns: 1fr; } .storage-section-header { flex-direction: column; } }
 .hero-panel { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 30px; align-items: center; padding: clamp(24px, 4vw, 46px); color: #f8fffc; background: linear-gradient(135deg, #0b302a, #0b5043 65%, #0f766e); border: 1px solid #1f8b79; border-radius: 18px; box-shadow: var(--shadow); }
 .hero-panel .eyebrow { color: #8ef0cb; }
 .hero-panel h2 { max-width: 720px; margin: 7px 0 10px; font-size: clamp(2rem, 4vw, 3.25rem); line-height: 1.04; }

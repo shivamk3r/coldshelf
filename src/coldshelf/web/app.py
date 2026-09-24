@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from coldshelf.config import DEFAULT_AGE_THRESHOLD_MONTHS
 from coldshelf.directory_sizer import DirectorySizingError
+from coldshelf.docker_storage import DockerConflict, DockerStorage, DockerUnavailable
 from coldshelf.protection.repository import (
     DEFAULT_PROTECTION_DB_PATH,
     ProtectionRepository,
@@ -31,6 +32,7 @@ from .deletion_jobs import (
     DELETE_DELAY_SECONDS,
     PREVIEW_TTL_SECONDS,
 )
+from .docker_jobs import DockerActionManager
 from .jobs import JobManager
 from .protection_jobs import ProtectionOperationManager
 from .repository import DEFAULT_DB_PATH, WebRepository
@@ -66,6 +68,12 @@ from .schemas import (
     RecoveryConfirmationRequest,
     RecoveryImportRequest,
     StorageSummaryResponse,
+    DockerActionCreateRequest,
+    DockerActionResponse,
+    DockerItemsResponse,
+    DockerPreviewRequest,
+    DockerPreviewResponse,
+    DockerUsageResponse,
 )
 from .security import make_token_dependency
 from .services import (
@@ -94,6 +102,8 @@ def create_app(
     browse_default_path: Optional[Path] = None,
     browse_delete_delay_seconds: float = DELETE_DELAY_SECONDS,
     browse_delete_preview_ttl_seconds: float = PREVIEW_TTL_SECONDS,
+    docker_storage: Optional[DockerStorage] = None,
+    docker_action_delay_seconds: float = 10,
 ) -> FastAPI:
     """Create the FastAPI app with injected persistence and token config."""
     repo = repository or WebRepository(DEFAULT_DB_PATH)
@@ -133,6 +143,10 @@ def create_app(
         delete_delay_seconds=browse_delete_delay_seconds,
         preview_ttl_seconds=browse_delete_preview_ttl_seconds,
     )
+    docker = docker_storage or DockerStorage()
+    docker_manager = DockerActionManager(
+        repo, docker, io_queue, delay_seconds=docker_action_delay_seconds
+    )
     protection_manager = ProtectionOperationManager(
         protection_repo, protection, io_queue
     )
@@ -142,9 +156,11 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         deletion_manager.start()
+        docker_manager.start()
         try:
             yield
         finally:
+            docker_manager.shutdown()
             deletion_manager.shutdown()
             io_queue.shutdown()
 
@@ -153,6 +169,7 @@ def create_app(
     app.state.job_manager = job_manager
     app.state.browse_manager = browse_manager
     app.state.deletion_manager = deletion_manager
+    app.state.docker_manager = docker_manager
     app.state.protection_repository = protection_repo
     app.state.protection_service = protection
     app.state.protection_manager = protection_manager
@@ -361,6 +378,65 @@ def create_app(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=str(exc),
             )
+
+    @app.get("/api/docker/usage", response_model=DockerUsageResponse,
+             dependencies=[Depends(verify_token)])
+    def docker_usage(refresh: bool = False) -> dict:
+        try:
+            return docker.public_usage(refresh=refresh)
+        except (DockerUnavailable, DockerConflict) as exc:
+            return {"available": False, "message": str(exc), "groups": {}}
+
+    @app.get("/api/docker/items", response_model=DockerItemsResponse,
+             dependencies=[Depends(verify_token)])
+    def docker_items(kind: str, page: int = Query(default=1, ge=1),
+                     limit: int = Query(default=50, ge=1, le=100),
+                     search: str = Query(default="", max_length=200)) -> dict:
+        try:
+            return docker.list_items(kind, page, limit, search)
+        except (DockerUnavailable, DockerConflict) as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    @app.post("/api/docker/previews", response_model=DockerPreviewResponse,
+              dependencies=[Depends(verify_token)])
+    def docker_preview(request: DockerPreviewRequest) -> dict:
+        try:
+            return docker_manager.create_preview(request.kind, request.ids, request.older_than_days,
+                                                 request.all_eligible)
+        except (DockerUnavailable, DockerConflict) as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    @app.post("/api/docker/actions", response_model=DockerActionResponse,
+              dependencies=[Depends(verify_token)])
+    def docker_schedule(request: DockerActionCreateRequest) -> dict:
+        try:
+            return docker_manager.schedule(request.preview_id, request.confirmation_phrase)
+        except DockerConflict as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+    @app.get("/api/docker/actions/active", dependencies=[Depends(verify_token)])
+    def active_docker_action() -> dict:
+        return {"action": docker_manager.active()}
+
+    @app.get("/api/docker/actions/recent", dependencies=[Depends(verify_token)])
+    def recent_docker_actions() -> dict:
+        return {"actions": docker_manager.recent()}
+
+    @app.get("/api/docker/actions/{action_id}", response_model=DockerActionResponse,
+             dependencies=[Depends(verify_token)])
+    def get_docker_action(action_id: str) -> dict:
+        try:
+            return docker_manager.get(action_id)
+        except DockerConflict as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+    @app.post("/api/docker/actions/{action_id}/undo", response_model=DockerActionResponse,
+              dependencies=[Depends(verify_token)])
+    def undo_docker_action(action_id: str) -> dict:
+        try:
+            return docker_manager.undo(action_id)
+        except DockerConflict as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
     @app.post(
         "/api/jobs",

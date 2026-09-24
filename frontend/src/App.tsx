@@ -26,10 +26,11 @@ import { BrowseDeletionToast, useBrowseDeletionController } from "./BrowseDeleti
 import { HelpCenter } from "./HelpCenter";
 import { ProtectedFolders } from "./ProtectedFolders";
 import { ReportsDashboard } from "./ReportsDashboard";
+import { StorageDashboard } from "./StorageDashboard";
 import type { ReportIntent } from "./ReportsDashboard";
 import type { StorageSummary } from "./types";
 
-type View = "home" | "browse" | "reports" | "protection" | "help";
+type View = "home" | "storage" | "browse" | "reports" | "protection" | "help";
 export type ProtectionIntent = "manage" | "create" | "restore" | "recover";
 
 interface ProtectionLaunch {
@@ -159,6 +160,7 @@ export function App() {
         </div>
         <nav className="primary-nav" aria-label="Dashboard">
           <NavButton active={view === "home"} icon={<Home />} label="Home" onClick={() => setView("home")} />
+          <NavButton active={view === "storage"} icon={<HardDrive />} label="Storage" onClick={() => setView("storage")} />
           <NavButton active={view === "browse"} icon={<FolderTree />} label="Browse" onClick={() => openBrowse()} />
           <NavButton active={view === "reports"} icon={<Database />} label="Reports" badge={jobsCount || undefined} onClick={() => setView("reports")} />
           <NavButton active={view === "protection"} icon={<ShieldCheck />} label="Protected folders" onClick={() => openProtection("manage")} />
@@ -181,11 +183,13 @@ export function App() {
           <HomeDashboard
             token={token}
             jobsCount={jobsCount}
+            openStorage={() => setView("storage")}
             openReports={openReports}
             openProtection={openProtection}
             openHelp={openHelp}
           />
         )}
+        {view === "storage" && <StorageDashboard token={token} onOpenBrowse={openBrowse} />}
         {view === "reports" && (
           <ReportsDashboard
             token={token}
@@ -240,9 +244,10 @@ export function App() {
   );
 }
 
-function HomeDashboard({ token, jobsCount, openReports, openProtection, openHelp }: {
+function HomeDashboard({ token, jobsCount, openStorage, openReports, openProtection, openHelp }: {
   token: string;
   jobsCount: number;
+  openStorage: () => void;
   openReports: (intent: ReportIntent) => void;
   openProtection: (intent: ProtectionIntent) => void;
   openHelp: (article?: string) => void;
@@ -346,6 +351,7 @@ function HomeDashboard({ token, jobsCount, openReports, openProtection, openHelp
               </dl>
             </div>
             <div className="storage-actions">
+              <button type="button" onClick={openStorage}><HardDrive />Where is space used?</button>
               <button type="button" className="primary-inline" onClick={() => openReports("analyze")}><BarChart3 />Analyze storage</button>
               <button type="button" onClick={() => openReports("archive")}><Archive />Archive old files</button>
             </div>
@@ -415,5 +421,5 @@ function formatBytes(value: number): string {
 
 function initialView(): View {
   const value = window.location.hash.replace(/^#\//, "");
-  return ["browse", "reports", "protection", "help"].includes(value) ? value as View : "home";
+  return ["storage", "browse", "reports", "protection", "help"].includes(value) ? value as View : "home";
 }

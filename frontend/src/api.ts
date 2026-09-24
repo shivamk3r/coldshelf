@@ -8,6 +8,11 @@ import type {
   BrowseScan,
   BrowseScanCreated,
   DirectoryListing,
+  DockerAction,
+  DockerItems,
+  DockerKind,
+  DockerPreview,
+  DockerUsage,
   DriveTarget,
   Job,
   MountedVolume,
@@ -90,6 +95,48 @@ export function getConfig(token: string): Promise<AppConfig> {
 
 export function getStorageSummary(token: string): Promise<StorageSummary> {
   return apiRequest<StorageSummary>("/api/storage", token);
+}
+
+export function getDockerUsage(token: string, refresh = false): Promise<DockerUsage> {
+  return apiRequest<DockerUsage>(`/api/docker/usage${refresh ? "?refresh=true" : ""}`, token);
+}
+
+export function getDockerItems(token: string, kind: DockerKind, page = 1, search = ""): Promise<DockerItems> {
+  const params = new URLSearchParams({ kind, page: String(page), search });
+  return apiRequest<DockerItems>(`/api/docker/items?${params}`, token);
+}
+
+export function previewDockerCleanup(token: string, kind: DockerKind, ids: string[],
+                                     olderThanDays = 30, allEligible = false): Promise<DockerPreview> {
+  return apiRequest<DockerPreview>("/api/docker/previews", token, {
+    method: "POST", body: JSON.stringify({ kind, ids, older_than_days: olderThanDays, all_eligible: allEligible })
+  });
+}
+
+export function scheduleDockerCleanup(token: string, previewId: string, confirmationPhrase: string): Promise<DockerAction> {
+  return apiRequest<DockerAction>("/api/docker/actions", token, {
+    method: "POST", body: JSON.stringify({ preview_id: previewId, confirmation_phrase: confirmationPhrase })
+  });
+}
+
+export function getActiveDockerAction(token: string): Promise<{ action: DockerAction | null }> {
+  return apiRequest<{ action: DockerAction | null }>("/api/docker/actions/active", token);
+}
+
+export function getRecentDockerActions(token: string): Promise<{ actions: DockerAction[] }> {
+  return apiRequest<{ actions: DockerAction[] }>("/api/docker/actions/recent", token);
+}
+
+export function getDockerAction(token: string, id: string): Promise<DockerAction> {
+  return apiRequest<DockerAction>(`/api/docker/actions/${id}`, token);
+}
+
+export function undoDockerAction(token: string, id: string): Promise<DockerAction> {
+  return apiRequest<DockerAction>(`/api/docker/actions/${id}/undo`, token, { method: "POST" });
+}
+
+export function getBrowseScan(token: string, id: string): Promise<BrowseScan> {
+  return apiRequest<BrowseScan>(`/api/browse/scans/${id}`, token);
 }
 
 export function browseDirectories(

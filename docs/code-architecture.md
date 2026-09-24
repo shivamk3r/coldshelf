@@ -285,7 +285,16 @@ The web API is token-protected except for `/health`.
 - `GET /health`: unauthenticated liveness check.
 - `GET /api/config`: default age threshold and feature availability.
 - `GET /api/storage`: total, used, and available capacity for the primary
-  filesystem containing the user's home directory.
+  filesystem containing the user's home directory, plus the same-filesystem
+  root available for an on-demand Browse scan.
+- `GET /api/docker/usage` and `/items`: local Docker disk usage and paged
+  images, containers, or volumes. An unavailable or remote daemon does not
+  prevent normal storage browsing.
+- `POST /api/docker/previews`: server-owned, expiring selection or bounded
+  build-cache age preview. `POST /api/docker/actions` confirms its phrase and
+  schedules the guarded cleanup. `GET /api/docker/actions/active`, `/recent`,
+  and `/{action_id}` recover status; `POST /api/docker/actions/{action_id}/undo`
+  cancels only before the server's execution deadline.
 - `GET /api/filesystem/directories`: list readable child directories and
   home/root/drive shortcuts for the folder picker.
 - `POST /api/browse/scans`: create an ephemeral scan and return its immediate

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from coldshelf.web.app import create_app
 from coldshelf.web.repository import WebRepository
 from coldshelf.protection.repository import ProtectionRepository
+from coldshelf.utils import home_filesystem_scan_root
 
 
 def _auth(token):
@@ -246,6 +247,7 @@ def test_primary_storage_returns_capacity_for_home_filesystem(tmp_path, monkeypa
         "total_bytes": 1_000_000,
         "used_bytes": 625_000,
         "available_bytes": 375_000,
+        "scan_root": str(home_filesystem_scan_root()),
     }
 
 

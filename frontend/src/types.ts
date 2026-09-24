@@ -133,6 +133,75 @@ export interface StorageSummary {
   total_bytes: number;
   used_bytes: number;
   available_bytes: number;
+  scan_root?: string;
+}
+
+export type DockerKind = "images" | "containers" | "volumes" | "cache";
+
+export interface DockerGroupUsage {
+  count: number;
+  active_count: number;
+  size_bytes: number;
+  reclaimable_bytes: number;
+}
+
+export interface DockerUsage {
+  available: boolean;
+  message?: string | null;
+  daemon_id?: string | null;
+  root_path?: string | null;
+  same_filesystem: boolean;
+  measured_at?: string | null;
+  groups: Partial<Record<DockerKind, DockerGroupUsage>>;
+}
+
+export interface DockerItem {
+  id: string;
+  name?: string;
+  image?: string;
+  state?: string;
+  driver?: string;
+  references?: number;
+  size_bytes: number;
+  shared_bytes?: number;
+  unique_bytes?: number;
+  eligible?: boolean;
+}
+
+export interface DockerItems {
+  kind: DockerKind;
+  total: number;
+  page: number;
+  limit: number;
+  items: DockerItem[];
+}
+
+export interface DockerPreview {
+  id: string;
+  kind: DockerKind;
+  items: DockerItem[];
+  ids: string[];
+  cutoff?: string | null;
+  estimated_bytes: number;
+  created_at: string;
+  expires_at: string;
+  confirmation_phrase: string;
+}
+
+export interface DockerAction {
+  id: string;
+  status: "scheduled" | "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
+  kind: DockerKind;
+  items: DockerItem[];
+  estimated_bytes: number;
+  outcomes: Array<{ id: string; status: string; error?: string; reclaimed_bytes?: number }>;
+  created_at: string;
+  delete_after: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error?: string | null;
+  server_time: string;
+  undo_available: boolean;
 }
 
 export interface DirectoryLocation {

@@ -64,6 +64,71 @@ class ActionsListResponse(BaseModel):
     actions: List[ActionResponse]
 
 
+class DockerGroupUsage(BaseModel):
+    count: int = Field(ge=0)
+    active_count: int = Field(ge=0)
+    size_bytes: int = Field(ge=0)
+    reclaimable_bytes: int = Field(ge=0)
+
+
+class DockerUsageResponse(BaseModel):
+    available: bool
+    message: Optional[str] = None
+    daemon_id: Optional[str] = None
+    root_path: Optional[str] = None
+    same_filesystem: bool = False
+    measured_at: Optional[str] = None
+    groups: Dict[str, DockerGroupUsage] = Field(default_factory=dict)
+
+
+class DockerItemsResponse(BaseModel):
+    kind: str
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    limit: int = Field(ge=1)
+    items: List[Dict[str, Any]]
+
+
+class DockerPreviewRequest(BaseModel):
+    kind: Literal["images", "containers", "volumes", "cache"]
+    ids: List[str] = Field(default_factory=list, max_length=1000)
+    older_than_days: int = 30
+    all_eligible: bool = False
+
+
+class DockerPreviewResponse(BaseModel):
+    id: str
+    kind: str
+    items: List[Dict[str, Any]]
+    ids: List[str]
+    cutoff: Optional[str] = None
+    estimated_bytes: int = Field(ge=0)
+    created_at: str
+    expires_at: str
+    confirmation_phrase: str
+
+
+class DockerActionCreateRequest(BaseModel):
+    preview_id: str
+    confirmation_phrase: str
+
+
+class DockerActionResponse(BaseModel):
+    id: str
+    status: str
+    kind: str
+    items: List[Dict[str, Any]]
+    estimated_bytes: int = Field(ge=0)
+    outcomes: List[Dict[str, Any]]
+    created_at: str
+    delete_after: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    error: Optional[str] = None
+    server_time: str
+    undo_available: bool
+
+
 class DirectoryLocation(BaseModel):
     name: str
     path: str
@@ -229,6 +294,7 @@ class StorageSummaryResponse(BaseModel):
     total_bytes: int = Field(ge=0)
     used_bytes: int = Field(ge=0)
     available_bytes: int = Field(ge=0)
+    scan_root: str
 
 
 class ProtectionPreflightResponse(BaseModel):

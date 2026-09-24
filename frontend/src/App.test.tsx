@@ -153,11 +153,11 @@ test("keeps Home usable and retries when storage lookup fails", async () => {
   expect(getStorageSummary).toHaveBeenCalledTimes(2);
 });
 
-test("opens Browse from the five-item sidebar and updates hash navigation", async () => {
+test("opens Browse from the six-item sidebar and updates hash navigation", async () => {
   render(<App />);
 
   const navigation = await screen.findByRole("navigation", { name: "Dashboard" });
-  expect(navigation.querySelectorAll("button")).toHaveLength(5);
+  expect(navigation.querySelectorAll("button")).toHaveLength(6);
   await userEvent.click(screen.getByRole("button", { name: "Browse" }));
 
   expect(await screen.findByRole("heading", { name: "Browse storage" })).toBeInTheDocument();

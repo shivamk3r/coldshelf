@@ -19,7 +19,7 @@ from coldshelf.drive_detector import detect_external_drives
 from coldshelf.executor import ActionExecutor
 from coldshelf.scanner import DiskScanner, ScanProgress
 from coldshelf.protection.repository import ProtectionRepository
-from coldshelf.utils import format_size
+from coldshelf.utils import format_size, home_filesystem_scan_root
 
 from .repository import WebRepository, confirmation_phrase
 from .schemas import ActionRequest, JobCreateRequest
@@ -125,7 +125,7 @@ def available_archive_targets() -> Dict[str, Any]:
     }
 
 
-def primary_storage_summary() -> Dict[str, int]:
+def primary_storage_summary() -> Dict[str, Any]:
     """Return capacity details for the filesystem containing the user's home."""
     try:
         usage = shutil.disk_usage(Path.home())
@@ -135,6 +135,7 @@ def primary_storage_summary() -> Dict[str, int]:
         "total_bytes": int(usage.total),
         "used_bytes": int(usage.used),
         "available_bytes": int(usage.free),
+        "scan_root": str(home_filesystem_scan_root()),
     }
 
 

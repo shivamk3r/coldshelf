@@ -76,7 +76,8 @@ def test_identity_repair_api_requires_ids_and_preserves_backups(tmp_path, monkey
         assert service.eviction_preview(folder["id"], [entry["id"]])["eligible_count"] == 1
 
 
-def test_authenticated_protected_folder_recovery_confirmation_catalog_and_job(tmp_path):
+def test_authenticated_protected_folder_recovery_confirmation_catalog_and_job(tmp_path, monkeypatch):
+    monkeypatch.setattr("coldshelf.web.app.platform_module.system", lambda: "Darwin")
     app, source, volume, _, _ = _app(tmp_path)
     with TestClient(app) as client:
         assert client.get("/api/protection/folders").status_code == 401

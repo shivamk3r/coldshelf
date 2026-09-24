@@ -15,6 +15,9 @@ CLI.
 
 - **Disk Usage Analysis**: Scan and visualize disk usage with detailed
   breakdowns.
+- **Whole-Disk and Docker Storage**: Compare filesystem capacity with a
+  same-filesystem folder scan and local Docker images, containers, volumes,
+  and build cache. Review eligible Docker cleanup with explicit confirmation.
 - **Cache File Detection**: Identify common cache and temporary files that can
   be reviewed and removed.
 - **Old File Archiving**: Find files not accessed in 6+ months and archive them
@@ -178,11 +181,44 @@ dashboard read-only. Use the dashboard's operation previews and confirmations.
 
 The dashboard opens on **Home**, where a primary-storage summary shows total,
 used, and available space for the filesystem containing the user's home folder.
-It can be refreshed on demand and links directly to Analyze storage and Archive
-old files. Task cards also lead to Clean caches, Review duplicates, Protect
-folders, Restore files, and Recover a catalog. The searchable **Help** section
-documents each operation, validated previews, explicit confirmations, archive
-symlinks, protected folder prerequisites, recovery, terminology, and
+Open **Storage** from Home or the navigation to compare that capacity with an
+on-demand top-level filesystem scan and local Docker usage. The scan reports
+permission errors and skipped mounts. Docker sizes can overlap with each other
+and with folder totals, so its reclaimable figures are estimates rather than
+guaranteed free space. Docker Desktop usage on macOS may not directly match the
+host filesystem total.
+
+The Docker panel lists images, containers, and volumes, and summarizes build
+cache. Cleanup is manual and one category at a time: only stopped containers,
+unreferenced images, and unlinked local volumes can be selected. Build cache
+uses a 7, 30, or 90-day cutoff. A five-minute server-owned preview and typed
+confirmation are required. Web actions wait 10 seconds before execution and
+can be cancelled during that period; Docker removals cannot be undone after
+execution. Volumes may contain persistent application data. No remote Docker
+context is used, and the dashboard never performs automatic cleanup.
+
+The same information is available in the CLI:
+
+```bash
+coldshelf storage
+coldshelf storage --scan-root
+coldshelf docker usage
+coldshelf docker list images --page 1
+coldshelf --dry-run docker clean containers --all-eligible
+coldshelf docker clean volumes --id exact-volume-name
+coldshelf docker clean cache --older-than-days 30
+```
+
+The global `--dry-run` option prints a Docker cleanup preview without deleting
+anything. Real CLI cleanup always prints its preview and requires the displayed
+phrase. Access to the local Docker socket is required for Docker features.
+
+The Home capacity summary can be refreshed on demand and links directly to
+Analyze storage and Archive old files. Task cards also lead to Clean caches,
+Review duplicates, Protect folders, Restore files, and Recover a catalog. The
+searchable **Help** section documents each operation, validated previews,
+explicit confirmations, archive symlinks, protected folder prerequisites,
+recovery, terminology, and
 troubleshooting.
 
 The **Browse** view opens the user's home folder and lists immediate folders and

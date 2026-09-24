@@ -121,7 +121,75 @@ class WebRepository:
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_browse_deletions_single_active
                     ON browse_deletions ((1))
                     WHERE status IN ('scheduled', 'queued', 'running');
+
+                CREATE TABLE IF NOT EXISTS docker_actions (
+                    id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    preview_json TEXT NOT NULL,
+                    outcomes_json TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL,
+                    delete_after TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    error TEXT
+                );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_docker_actions_single_active
+                    ON docker_actions ((1))
+                    WHERE status IN ('scheduled', 'queued', 'running');
                 """
+            )
+
+    def create_docker_action(self, action_id: str, preview: Dict[str, Any],
+                             created_at: str, delete_after: str) -> Dict[str, Any]:
+        with self._write() as conn:
+            conn.execute(
+                "INSERT INTO docker_actions (id,status,kind,preview_json,created_at,delete_after) VALUES (?,?,?,?,?,?)",
+                (action_id, "scheduled", preview["kind"], _json_dumps(preview), created_at, delete_after),
+            )
+        return self.get_docker_action(action_id)
+
+    def get_docker_action(self, action_id: str) -> Dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM docker_actions WHERE id=?", (action_id,)).fetchone()
+        if row is None:
+            raise KeyError(action_id)
+        return _row_to_docker_action(row)
+
+    def get_active_docker_action(self) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM docker_actions WHERE status IN ('scheduled','queued','running') LIMIT 1"
+            ).fetchone()
+        return _row_to_docker_action(row) if row else None
+
+    def list_recent_docker_actions(self, limit: int = 20) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM docker_actions ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [_row_to_docker_action(row) for row in rows]
+
+    def transition_docker_action(self, action_id: str, from_status: str,
+                                 to_status: str, **fields: Any) -> bool:
+        allowed = {"started_at", "finished_at", "error", "outcomes_json"}
+        if set(fields) - allowed:
+            raise ValueError("Unsupported Docker action field")
+        assignments = ["status=?"] + [f"{key}=?" for key in fields]
+        values = [to_status] + list(fields.values()) + [action_id, from_status]
+        with self._write() as conn:
+            cursor = conn.execute(
+                f"UPDATE docker_actions SET {', '.join(assignments)} WHERE id=? AND status=?",
+                values,
+            )
+            return cursor.rowcount == 1
+
+    def interrupt_docker_actions(self, finished_at: str) -> None:
+        with self._write() as conn:
+            conn.execute(
+                "UPDATE docker_actions SET status='interrupted', finished_at=?, error='Operation interrupted; review Docker state before retrying' WHERE status IN ('scheduled','queued','running')",
+                (finished_at,),
             )
 
     def create_job(self, job_id: str, request: JobCreateRequest, path: Path) -> Dict[str, Any]:
@@ -671,6 +739,13 @@ def _row_to_browse_deletion(
         for item in item_rows
     ]
     return deletion
+
+
+def _row_to_docker_action(row: sqlite3.Row) -> Dict[str, Any]:
+    action = dict(row)
+    action["preview"] = json.loads(action.pop("preview_json"))
+    action["outcomes"] = json.loads(action.pop("outcomes_json"))
+    return action
 
 
 def _json_dumps(value: Any) -> str:
