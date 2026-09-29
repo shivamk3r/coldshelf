@@ -197,6 +197,9 @@ can be cancelled during that period; Docker removals cannot be undone after
 execution. Volumes may contain persistent application data. No remote Docker
 context is used, and the dashboard never performs automatic cleanup.
 
+For an illustrated explanation of images, containers, mounts, and cleanup
+decisions, see [How Docker works and where its disk space goes](docs/learn/docker.md).
+
 The same information is available in the CLI:
 
 ```bash
