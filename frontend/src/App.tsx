@@ -122,7 +122,7 @@ export function App() {
     return (
       <main className="auth-screen">
         <section className="auth-panel">
-          <div className="auth-mark"><HardDrive aria-hidden="true" /></div>
+          <img className="auth-mark" src="/snowflake.svg" alt="" />
           <span className="eyebrow">Local disk maintenance</span>
           <h1>coldshelf</h1>
           {checkingToken ? (
@@ -155,7 +155,7 @@ export function App() {
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand-row">
-          <div className="brand-icon"><HardDrive aria-hidden="true" /></div>
+          <img className="brand-icon" src="/snowflake.svg" alt="" />
           <div><h1>coldshelf</h1><span>Local dashboard</span></div>
         </div>
         <nav className="primary-nav" aria-label="Dashboard">

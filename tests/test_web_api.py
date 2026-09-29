@@ -55,6 +55,21 @@ def test_api_requires_token(tmp_path):
     assert client.get("/api/config", headers=_auth("secret")).status_code == 200
 
 
+def test_packaged_snowflake_is_public_static_asset(tmp_path):
+    app = create_app(repository=WebRepository(tmp_path / "web.sqlite3"), token="secret")
+    client = TestClient(app)
+
+    page = client.get("/")
+    icon = client.get("/snowflake.svg")
+
+    assert page.status_code == 200
+    assert 'rel="icon"' in page.text
+    assert 'href="/snowflake.svg"' in page.text
+    assert icon.status_code == 200
+    assert icon.headers["content-type"].startswith("image/svg+xml")
+    assert "<svg" in icon.text
+
+
 def test_directory_browser_lists_only_directories_and_can_show_hidden(tmp_path):
     source = tmp_path / "folders"
     source.mkdir()
