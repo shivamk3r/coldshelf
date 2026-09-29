@@ -96,6 +96,18 @@ class DockerPreviewRequest(BaseModel):
     all_eligible: bool = False
 
 
+class DockerCacheSummary(BaseModel):
+    matching_count: int = Field(ge=0)
+    matching_bytes: int = Field(ge=0)
+    removable_count: int = Field(ge=0)
+    removable_bytes: int = Field(ge=0)
+    private_bytes: int = Field(ge=0)
+    shared_bytes: int = Field(ge=0)
+    unknown_shared_bytes: int = Field(ge=0)
+    retained_count: int = Field(ge=0)
+    retained_bytes: int = Field(ge=0)
+
+
 class DockerPreviewResponse(BaseModel):
     id: str
     kind: str
@@ -103,6 +115,8 @@ class DockerPreviewResponse(BaseModel):
     ids: List[str]
     cutoff: Optional[str] = None
     estimated_bytes: int = Field(ge=0)
+    older_than_days: Optional[int] = None
+    cache_summary: Optional[DockerCacheSummary] = None
     created_at: str
     expires_at: str
     confirmation_phrase: str
@@ -119,6 +133,7 @@ class DockerActionResponse(BaseModel):
     kind: str
     items: List[Dict[str, Any]]
     estimated_bytes: int = Field(ge=0)
+    cache_summary: Optional[DockerCacheSummary] = None
     outcomes: List[Dict[str, Any]]
     created_at: str
     delete_after: str

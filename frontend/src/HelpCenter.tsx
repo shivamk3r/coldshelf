@@ -38,7 +38,7 @@ const ARTICLES: HelpArticle[] = [
     notes: [
       "Docker category sizes and folder totals can overlap; do not add them to estimate total disk usage or guaranteed savings.",
       "Only stopped containers, unreferenced images, and unlinked local volumes are eligible. Volume removal permanently deletes stored application data.",
-      "Docker build-cache pruning has no true dry-run. Its preview is an estimate and the server rechecks candidates before execution.",
+      "Build-cache previews separate private cache, image-shared data, and older parents retained by newer cache. Private size is a potential saving; Docker-reported reclaimed bytes can differ from filesystem free space. The server rechecks the fixed age selection before pruning only the reviewed IDs.",
       "Only a local Docker daemon is supported. Docker Desktop data on macOS may not reconcile directly with host filesystem usage."
     ]
   },

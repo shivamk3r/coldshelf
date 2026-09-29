@@ -69,6 +69,8 @@ def docker_usage() -> None:
                       format_size(group["reclaimable_bytes"]))
     console.print(table)
     console.print("Docker figures overlap shared data and must not be added to folder totals.")
+    console.print("Build-cache reclaimable covers all ages and excludes image-shared cache. "
+                  "An age-limited cleanup can free less because newer cache retains its parents.")
 
 
 @docker_command.command("list")
@@ -120,15 +122,33 @@ def docker_clean(ctx: click.Context, kind: str, ids: tuple[str, ...], all_eligib
     except (DockerUnavailable, DockerConflict) as exc:
         raise click.ClickException(str(exc)) from exc
     count = len(preview["items"])
-    console.print(f"Preview: {count} {kind}; estimated size {format_size(preview['estimated_bytes'])}.")
+    if kind == "cache":
+        summary = preview["cache_summary"]
+        console.print(f"Preview: {count} cache records selected; unused for over {older_than_days} days.")
+        console.print(f"Age-matching records: {summary['matching_count']}; "
+                      f"{format_size(summary['matching_bytes'])} record size.")
+        console.print(f"Retained by cache outside this selection: {summary['retained_count']} records; "
+                      f"{format_size(summary['retained_bytes'])}.")
+        console.print(f"Selected cache size: {format_size(summary['private_bytes'])} private; "
+                      f"{format_size(summary['shared_bytes'])} shared with images.")
+        if summary["unknown_shared_bytes"]:
+            console.print(f"Sharing information unavailable for {format_size(summary['unknown_shared_bytes'])}.")
+        console.print("Private cache size is a potential saving, not a promise of filesystem space. "
+                      "Image-shared layers stay. Docker may retain records whose references change.")
+    else:
+        console.print(f"Preview: {count} {kind}; estimated size {format_size(preview['estimated_bytes'])}.")
     if kind == "volumes":
         console.print("Removing a volume permanently deletes its stored application data.")
-    if kind == "cache":
-        console.print("Docker has no build-cache dry-run; this is an estimate for unused older cache.")
     for item in preview["items"]:
         console.print(f"  {item['id']}")
     ActionExecutor(dry_run=True).log_action("DOCKER_PREVIEW", Path("docker"),
-                                           details={"kind": kind, "selected_count": count})
+                                           details={"kind": kind, "selected_count": count,
+                                                    "ids": preview["ids"], "cutoff": preview["cutoff"],
+                                                    "estimated_bytes": preview["estimated_bytes"],
+                                                    "cache_summary": preview.get("cache_summary")})
+    if not count:
+        console.print("No cache records can currently be removed within this age selection.")
+        return
     if dry_run:
         return
     phrase = f"DELETE {count} DOCKER VOLUMES" if kind == "volumes" else f"REMOVE {count} DOCKER {kind.upper()}"
@@ -141,7 +161,8 @@ def docker_clean(ctx: click.Context, kind: str, ids: tuple[str, ...], all_eligib
     except OSError as exc:
         raise click.ClickException("The action log is unavailable; no Docker data was removed.") from exc
     executor.log_action("DOCKER_SCHEDULED", Path("docker"),
-                        details={"kind": kind, "selected_count": count})
+                        details={"kind": kind, "selected_count": count,
+                                 "ids": preview["ids"], "cutoff": preview["cutoff"]})
     def record(outcome):
         executor.log_action("DOCKER_ITEM", Path("docker"),
                             success=outcome["status"] == "deleted", error=outcome.get("error"),
@@ -153,6 +174,15 @@ def docker_clean(ctx: click.Context, kind: str, ids: tuple[str, ...], all_eligib
         raise click.ClickException(str(exc)) from exc
     executor.log_action("DOCKER_CLEAN", Path("docker"),
                         details={"kind": kind, "outcomes": outcomes})
+    if kind == "cache":
+        outcome = outcomes[0]
+        console.print(f"Completed: {outcome['deleted_count']} cache records removed; "
+                      f"{outcome['not_removed_count']} retained by Docker.")
+        console.print(f"Docker-reported reclaimed: {format_size(outcome['reclaimed_bytes'])}. "
+                      "Refresh filesystem capacity to measure the actual free-space change.")
+        if outcome.get("error"):
+            console.print(outcome["error"])
+        return
     deleted = sum(item["status"] == "deleted" for item in outcomes)
     failed = sum(item["status"] != "deleted" for item in outcomes)
     console.print(f"Completed: {deleted} removed, {failed} skipped or failed. Run 'coldshelf docker usage' to refresh space estimates.")

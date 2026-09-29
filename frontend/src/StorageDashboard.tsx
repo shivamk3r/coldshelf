@@ -8,7 +8,7 @@ import {
 } from "./api";
 import type {
   BrowseResult, BrowseScan, DockerAction, DockerItems, DockerKind,
-  DockerPreview, DockerUsage, StorageSummary
+  DockerOutcome, DockerPreview, DockerUsage, StorageSummary
 } from "./types";
 
 const KINDS: DockerKind[] = ["images", "containers", "volumes", "cache"];
@@ -211,12 +211,13 @@ export function StorageDashboard({ token, onOpenBrowse }: { token: string; onOpe
               return <button key={entry} className={kind === entry ? "active" : ""} onClick={() => changeKind(entry)}>
                 <strong>{entry === "cache" ? "Build cache" : entry[0].toUpperCase() + entry.slice(1)}</strong>
                 <span>{group ? bytes(group.size_bytes) : "—"} used · {group?.count ?? 0} items</span>
-                <small>{group ? bytes(group.reclaimable_bytes) : "—"} reclaimable estimate</small>
+                <small>{group ? bytes(group.reclaimable_bytes) : "—"} reclaimable estimate{entry === "cache" && " across all ages"}</small>
               </button>;
             })}</div>
-            {kind === "cache" ? <div className="docker-cache-controls"><label>Unused cache last used over <select value={ageDays} onChange={(event) => setAgeDays(Number(event.target.value))}>
+            {kind === "cache" ? <div className="docker-cache-controls"><label>Unused cache last used over <select value={ageDays} onChange={(event) => { setAgeDays(Number(event.target.value)); setPreview(null); setPhrase(""); }}>
               <option value={7}>7 days ago</option><option value={30}>30 days ago</option><option value={90}>90 days ago</option>
-            </select></label><p>Docker has no true dry-run for cache pruning. The preview is an estimate and the server checks it again before pruning.</p></div>
+            </select></label><p>The category estimate excludes image-shared cache and covers all ages. Newer cache can retain older parents.
+              The preview checks those dependencies; Docker has no true dry-run and decides what it can remove at execution.</p></div>
               : <><div className="docker-list-toolbar"><input aria-label={`Search Docker ${kind}`} placeholder={`Search ${kind}`} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); setListing(null); }} />
                 {kind !== "volumes" && <button onClick={() => { setAllEligible(true); setSelected(new Set()); }}>Select all eligible</button>}
                 <span>{allEligible ? "All eligible selected" : `${selected.size} selected`}</span></div>
@@ -232,24 +233,47 @@ export function StorageDashboard({ token, onOpenBrowse }: { token: string; onOpe
           </>}
     </section>
     {preview && <section className="panel docker-review" role="dialog" aria-label="Review Docker cleanup"><ShieldAlert /><div><h3>Review {preview.kind} cleanup</h3>
-      <p>{preview.items.length} items · {bytes(preview.estimated_bytes)} estimated. Actual free space may differ.</p>
+      {preview.kind === "cache" && preview.cache_summary ? <>
+        <p>{preview.items.length} cache records selected · unused for over {preview.older_than_days} days.</p>
+        <p>{preview.cache_summary.matching_count} age-matching records · {bytes(preview.cache_summary.matching_bytes)} total record size.</p>
+        <p>{preview.cache_summary.retained_count} records ({bytes(preview.cache_summary.retained_bytes)}) retained by cache outside this selection.</p>
+        <p>Selected cache size: {bytes(preview.cache_summary.private_bytes)} private · {bytes(preview.cache_summary.shared_bytes)} shared with images.</p>
+        {preview.cache_summary.unknown_shared_bytes > 0 && <p>Sharing information unavailable for {bytes(preview.cache_summary.unknown_shared_bytes)}.</p>}
+        <p>Private cache size is a potential saving, not a promise of filesystem space. Image-shared layers stay.
+          Docker may retain records whose references change.</p>
+      </> : <p>{preview.items.length} items · {bytes(preview.estimated_bytes)} estimated. Actual free space may differ.</p>}
       {preview.kind === "volumes" && <p><strong>Volume data will be permanently deleted and cannot be recovered from Docker.</strong></p>}
       <div className="docker-review-items">{preview.items.map((item) => <div key={item.id}>{item.name || item.id} · {item.id}</div>)}</div>
-      <label>Type <code>{preview.confirmation_phrase}</code><input value={phrase} onChange={(event) => setPhrase(event.target.value)} autoComplete="off" /></label>
-      <div className="button-row"><button onClick={() => setPreview(null)}>Cancel</button><button className="danger-button" disabled={phrase !== preview.confirmation_phrase} onClick={() => void confirmCleanup()}>Schedule cleanup</button></div>
+      {preview.items.length > 0 ? <>
+        <label>Type <code>{preview.confirmation_phrase}</code><input value={phrase} onChange={(event) => setPhrase(event.target.value)} autoComplete="off" /></label>
+        <div className="button-row"><button onClick={() => setPreview(null)}>Cancel</button><button className="danger-button" disabled={phrase !== preview.confirmation_phrase} onClick={() => void confirmCleanup()}>Schedule cleanup</button></div>
+      </> : <><p>No cache records can currently be removed within this age selection.</p><button onClick={() => setPreview(null)}>Close</button></>}
     </div></section>}
     {action && <section className="panel docker-action-status" role="status"><strong>Docker {action.kind}: {action.status}</strong>
-      <span>{action.status === "scheduled" ? `Starts in about ${countdown} seconds. You can cancel before it starts.` : action.error || `${action.outcomes.filter((item) => item.status === "deleted").length} removed, ${action.outcomes.filter((item) => item.status !== "deleted").length} skipped or failed.`}</span>
+      <span>{action.status === "scheduled" ? `Starts in about ${countdown} seconds. You can cancel before it starts.` : action.error ||
+        (action.kind === "cache" && action.outcomes.length > 0 ? action.outcomes.map(cacheOutcome).join(" ") :
+          `${action.outcomes.filter((item) => item.status === "deleted").length} removed, ${action.outcomes.filter((item) => item.status !== "deleted").length} skipped or failed.`)}</span>
       {action.status === "scheduled" && action.undo_available && countdown > 0 && <button onClick={() => void undo()}>Cancel cleanup</button>}
       {!ACTIVE.has(action.status) && <button onClick={() => setAction(null)}>Dismiss</button>}
     </section>}
     {recent.length > 0 && <section className="panel storage-overview"><h3>Recent Docker activity</h3>
       {recent.map((entry) => <details key={entry.id} className="docker-history-row"><summary>{entry.kind} · {entry.status} · {entry.items.length} reviewed <small>{new Date(entry.created_at).toLocaleString()}</small></summary>
         {entry.error && <p>{entry.error}</p>}
-        {entry.outcomes.map((outcome) => <p key={outcome.id}>{outcome.id}: {outcome.status}{outcome.error ? ` · ${outcome.error}` : ""}{outcome.reclaimed_bytes !== undefined ? ` · ${bytes(outcome.reclaimed_bytes)} reclaimed` : ""}</p>)}
+        {entry.outcomes.map((outcome) => <p key={outcome.id}>{entry.kind === "cache" ? cacheOutcome(outcome) :
+          `${outcome.id}: ${outcome.status}${outcome.error ? ` · ${outcome.error}` : ""}`}</p>)}
       </details>)}
     </section>}
   </section>;
+}
+
+function cacheOutcome(outcome: DockerOutcome): string {
+  const count = outcome.deleted_count !== undefined
+    ? `${outcome.deleted_count} cache records removed; ${outcome.not_removed_count ?? 0} retained by Docker. `
+    : `Cache prune ${outcome.status}. `;
+  const reclaimed = outcome.reclaimed_bytes !== undefined
+    ? `Docker-reported reclaimed: ${bytes(outcome.reclaimed_bytes)}. Filesystem free-space change may differ. `
+    : "";
+  return count + reclaimed + (outcome.error || "");
 }
 
 function bytes(value: number): string {

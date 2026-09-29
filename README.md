@@ -197,6 +197,14 @@ can be cancelled during that period; Docker removals cannot be undone after
 execution. Volumes may contain persistent application data. No remote Docker
 context is used, and the dashboard never performs automatic cleanup.
 
+Build-cache previews separate private cache from image-shared data and older
+parents retained by newer cache. Only dependency-eligible records enter the
+reviewed removal scope. Age and record metadata are checked again immediately
+before pruning those exact IDs. Private bytes are potential savings;
+Docker-reported reclaimed bytes are accounting totals, not a measurement of
+filesystem free space. See the [build-cache cleanup diagnosis and
+safety details](docs/docker-cache-cleanup.md).
+
 For an illustrated explanation of images, containers, mounts, and cleanup
 decisions, see [How Docker works and where its disk space goes](docs/learn/docker.md).
 

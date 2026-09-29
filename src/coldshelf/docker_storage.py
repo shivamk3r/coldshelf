@@ -9,7 +9,6 @@ from __future__ import annotations
 import copy
 import http.client
 import json
-import math
 import os
 import platform
 import re
@@ -112,6 +111,60 @@ def _cache_id_filter(ids: List[str]) -> str:
     if not ids or any(not _CACHE_ID.fullmatch(item_id) for item_id in ids):
         raise DockerConflict("Build cache has an unsupported ID. Review again.")
     return "^(?:" + "|".join(item_id.replace(".", r"\.") for item_id in ids) + ")$"
+
+
+def _cache_parents(item: Dict[str, Any]) -> List[str]:
+    # Engine 29.1.x has a leading space in CacheRecord's JSON tag.
+    parents = item.get("Parents") or item.get(" Parents") or []
+    if not parents and item.get("Parent"):
+        parents = [item["Parent"]]
+    if not isinstance(parents, list) or any(not isinstance(parent, str) or not parent for parent in parents):
+        raise DockerUnavailable("Docker returned invalid build-cache parent information.")
+    return sorted(set(parents))
+
+
+def _cache_selection(items: List[Dict[str, Any]], cutoff: float) -> tuple[List[Dict[str, Any]], Dict[str, int]]:
+    """Peel eligible leaves, retaining ancestors needed outside the age scope.
+
+    DiskUsage's InUse discounts references from *all* unused descendants,
+    including recent ones. Prune can only remove a parent after its children.
+    """
+    by_id = {item["id"]: item for item in items}
+    if len(by_id) != len(items) or "" in by_id:
+        raise DockerConflict("Build cache has missing or duplicate IDs. Review again.")
+    matching = {
+        item["id"] for item in items if not item["in_use"] and
+        (age := _age_seconds(item["last_used"])) is not None and age < cutoff
+    }
+    children: Dict[str, set[str]] = {item_id: set() for item_id in by_id}
+    for item in items:
+        for parent in item["parents"]:
+            if parent in children:
+                children[parent].add(item["id"])
+    remaining = {item_id: len(children[item_id]) for item_id in matching}
+    leaves = [item_id for item_id, count in remaining.items() if count == 0]
+    removable: set[str] = set()
+    while leaves:
+        item_id = leaves.pop()
+        removable.add(item_id)
+        for parent in by_id[item_id]["parents"]:
+            if parent in remaining:
+                remaining[parent] -= 1
+                if remaining[parent] == 0:
+                    leaves.append(parent)
+    selected = [by_id[item_id] for item_id in sorted(removable)]
+    retained = matching - removable
+    return selected, {
+        "matching_count": len(matching),
+        "matching_bytes": sum(by_id[item_id]["size_bytes"] for item_id in matching),
+        "removable_count": len(selected),
+        "removable_bytes": sum(item["size_bytes"] for item in selected),
+        "private_bytes": sum(item["size_bytes"] for item in selected if item["shared"] is False),
+        "shared_bytes": sum(item["size_bytes"] for item in selected if item["shared"] is True),
+        "unknown_shared_bytes": sum(item["size_bytes"] for item in selected if item["shared"] is None),
+        "retained_count": len(retained),
+        "retained_bytes": sum(by_id[item_id]["size_bytes"] for item_id in retained),
+    }
 
 
 class DockerStorage:
@@ -225,8 +278,12 @@ class DockerStorage:
                 cache.append({
                     "id": str(item.get("ID") or item.get("Id") or ""),
                     "size_bytes": _positive(item.get("Size")),
-                    "in_use": bool(item.get("InUse")),
+                    "in_use": item.get("InUse") is not False,
+                    "shared": item.get("Shared") if isinstance(item.get("Shared"), bool) else None,
+                    "parents": _cache_parents(item),
                     "last_used": item.get("LastUsedAt") or item.get("CreatedAt"),
+                    "created_at": item.get("CreatedAt"),
+                    "usage_count": item.get("UsageCount"),
                 })
 
             groups = {
@@ -262,7 +319,8 @@ class DockerStorage:
         if kind == "images":
             fallback_reclaim = sum(item["unique_bytes"] for item in items if item["eligible"])
         elif kind == "cache":
-            fallback_reclaim = sum(item["size_bytes"] for item in items if not item["in_use"])
+            fallback_reclaim = sum(item["size_bytes"] for item in items
+                                   if not item["in_use"] and item["shared"] is False)
         else:
             fallback_reclaim = sum(item["size_bytes"] for item in items if item["eligible"])
         fallback_active = sum(item["in_use"] for item in items) if kind == "cache" else sum(
@@ -303,18 +361,22 @@ class DockerStorage:
             if older_than_days not in {7, 30, 90}:
                 raise DockerConflict("Choose 7, 30, or 90 days for build cache.")
             cutoff = datetime.now(timezone.utc).timestamp() - older_than_days * 86400
-            selected = [item for item in snap["cache_items"] if not item["in_use"] and
-                        (age := _age_seconds(item["last_used"])) is not None and age < cutoff]
-            if not selected:
+            selected, summary = _cache_selection(snap["cache_items"], cutoff)
+            if not summary["matching_count"]:
                 raise DockerConflict("No unused build cache matches this age.")
-            if len(selected) > 1000 or any(not item["id"] for item in selected) or len({item["id"] for item in selected}) != len(selected):
+            if len(selected) > 1000:
                 raise DockerConflict("Build cache cannot be safely reviewed as one selection. Choose an older age cutoff.")
-            _cache_id_filter([item["id"] for item in selected])
+            if selected:
+                _cache_id_filter([item["id"] for item in selected])
             return {
                 "kind": kind, "daemon_id": snap["daemon_id"], "items": selected,
                 "ids": sorted(item["id"] for item in selected),
                 "cutoff": datetime.fromtimestamp(cutoff, timezone.utc).isoformat(),
-                "estimated_bytes": sum(item["size_bytes"] for item in selected),
+                "older_than_days": older_than_days,
+                "cache_summary": summary,
+                # Private bytes in the dependency-eligible selection, not the
+                # logical sum of every old record or a filesystem prediction.
+                "estimated_bytes": summary["private_bytes"],
             }
         if all_eligible:
             if kind == "volumes" or ids:
@@ -344,24 +406,34 @@ class DockerStorage:
             raise DockerConflict("The Docker daemon changed after preview.")
         if kind == "cache":
             cutoff = _age_seconds(preview["cutoff"])
-            selected = sorted(item["id"] for item in current["cache_items"] if not item["in_use"] and
-                              (age := _age_seconds(item["last_used"])) is not None and cutoff is not None and age < cutoff)
-            if selected != sorted(preview["ids"]):
+            if cutoff is None or not preview["ids"]:
+                raise DockerConflict("No removable build cache was reviewed.")
+            selected, _ = _cache_selection(current["cache_items"], cutoff)
+            if ([item["id"] for item in selected] != sorted(preview["ids"]) or
+                    selected != sorted(preview["items"], key=lambda item: item["id"])):
                 raise DockerConflict("Build cache changed after preview. Review again.")
-            # Engine's build-prune "until" accepts a duration since last use.
-            # Limit it to the exact reviewed IDs as well, so a new cache record
-            # cannot enter the prune set between the second scan and the call.
-            age_seconds = math.ceil(datetime.now(timezone.utc).timestamp() - cutoff)
-            filters = json.dumps({"id": [_cache_id_filter(preview["ids"])],
-                                  "until": [f"{max(1, age_seconds)}s"]})
+            # Age is fixed at review and revalidated above, including last-use
+            # and usage-count fingerprints. Do not send "until": BuildKit can
+            # refresh parent timestamps while pruning children, stranding an
+            # otherwise eligible chain. The anchored ID filter still prevents
+            # any unreviewed or newly created record from entering this prune.
+            # Docker retains records with live references; there is no atomic
+            # preview/prune transaction or guarantee of a filesystem delta.
+            filters = json.dumps({"id": [_cache_id_filter(preview["ids"])]})
             result = self._api("POST", "/build/prune?" + urlencode({"all": "1", "filters": filters}))
             self.invalidate()
             reclaimed = _positive(result.get("SpaceReclaimed"))
-            removed = bool(result.get("CachesDeleted")) or reclaimed > 0
+            deleted_ids = sorted(set(result.get("CachesDeleted") or []))
+            not_removed_ids = sorted(set(preview["ids"]) - set(deleted_ids))
+            removed = bool(deleted_ids) or reclaimed > 0
             outcome = {"id": "build-cache", "status": "deleted" if removed else "skipped",
-                       "reclaimed_bytes": reclaimed}
+                       "reclaimed_bytes": reclaimed, "deleted_count": len(deleted_ids),
+                       "not_removed_count": len(not_removed_ids),
+                       "deleted_ids": deleted_ids, "not_removed_ids": not_removed_ids}
             if not removed:
                 outcome["error"] = "Docker found no removable cache among the reviewed items."
+            elif not_removed_ids:
+                outcome["error"] = "Docker retained some reviewed records; cache references may have changed."
             if on_outcome:
                 on_outcome(outcome)
             return [outcome]

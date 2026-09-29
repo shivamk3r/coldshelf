@@ -183,9 +183,34 @@ export interface DockerPreview {
   ids: string[];
   cutoff?: string | null;
   estimated_bytes: number;
+  older_than_days?: number | null;
+  cache_summary?: DockerCacheSummary | null;
   created_at: string;
   expires_at: string;
   confirmation_phrase: string;
+}
+
+export interface DockerCacheSummary {
+  matching_count: number;
+  matching_bytes: number;
+  removable_count: number;
+  removable_bytes: number;
+  private_bytes: number;
+  shared_bytes: number;
+  unknown_shared_bytes: number;
+  retained_count: number;
+  retained_bytes: number;
+}
+
+export interface DockerOutcome {
+  id: string;
+  status: string;
+  error?: string;
+  reclaimed_bytes?: number;
+  deleted_count?: number;
+  not_removed_count?: number;
+  deleted_ids?: string[];
+  not_removed_ids?: string[];
 }
 
 export interface DockerAction {
@@ -194,7 +219,8 @@ export interface DockerAction {
   kind: DockerKind;
   items: DockerItem[];
   estimated_bytes: number;
-  outcomes: Array<{ id: string; status: string; error?: string; reclaimed_bytes?: number }>;
+  cache_summary?: DockerCacheSummary | null;
+  outcomes: DockerOutcome[];
   created_at: string;
   delete_after: string;
   started_at?: string | null;

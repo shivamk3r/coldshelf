@@ -100,6 +100,16 @@ explain a gap between Docker's category cards and filesystem usage.
   reported unique sizes. Those numbers can differ; neither is a promise of
   bytes freed. The list is paginated, and **Select all eligible** spans every
   page, so inspect the reviewed selection before confirming.
+- The build-cache card's **reclaimable** figure covers all ages and excludes
+  cache shared with images. The age preview separates private cache, shared
+  cache, and older records retained by newer descendants. It selects only
+  records whose dependencies allow removal within the reviewed scope.
+  Shared image layers remain even if their cache metadata is deleted.
+- A completed cache cleanup reports the number of records Docker actually
+  deleted and **Docker-reported reclaimed** bytes. That byte count is Docker's
+  record accounting; refresh filesystem capacity to measure the free-space
+  change. See the [cache cleanup investigation](../docker-cache-cleanup.md)
+  for the Docker 29.1.3 age-filter bug and coldshelf's workaround.
 
 For example, if two images each show 6 GiB but share 4 GiB of layers, they
 occupy about 8 GiB together, not 12 GiB. Removing only one still leaves the

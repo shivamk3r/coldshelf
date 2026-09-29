@@ -75,6 +75,8 @@ class DockerActionManager:
                 "preview_id": preview_id, "kind": kind,
                 "selected_count": len(selection["items"]),
                 "estimated_bytes": selection["estimated_bytes"],
+                "ids": selection["ids"], "cutoff": selection["cutoff"],
+                "cache_summary": selection.get("cache_summary"),
             },
         )
         return self._public_preview(record)
@@ -87,6 +89,8 @@ class DockerActionManager:
                 raise DockerConflict("Docker preview expired or was already used.")
             if phrase != preview["confirmation_phrase"]:
                 raise DockerConflict("Type the displayed confirmation phrase exactly.")
+            if not preview["items"]:
+                raise DockerConflict("No removable build cache was reviewed.")
             if self.repository.get_active_docker_action():
                 raise DockerConflict("Another Docker cleanup is already active.")
             self._ensure_log_writable()
@@ -103,6 +107,7 @@ class DockerActionManager:
         ActionExecutor().log_action("DOCKER_SCHEDULED", Path("docker"), details={
             "action_id": action_id, "kind": preview["kind"],
             "selected_count": len(preview["items"]),
+            "ids": preview["ids"], "cutoff": preview["cutoff"],
         })
         with self._condition:
             self._condition.notify_all()
@@ -218,6 +223,7 @@ class DockerActionManager:
         return {
             "id": action["id"], "status": action["status"], "kind": action["kind"],
             "items": preview["items"], "estimated_bytes": preview["estimated_bytes"],
+            "cache_summary": preview.get("cache_summary"),
             "outcomes": action["outcomes"], "created_at": action["created_at"],
             "delete_after": action["delete_after"], "started_at": action["started_at"],
             "finished_at": action["finished_at"], "error": action["error"],
