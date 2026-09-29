@@ -12,6 +12,7 @@ import json
 import math
 import os
 import platform
+import re
 import shutil
 import socket
 import stat
@@ -26,6 +27,7 @@ from urllib.parse import quote, urlencode
 
 KINDS = ("images", "containers", "volumes", "cache")
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+_CACHE_ID = re.compile(r"[A-Za-z0-9:_.-]+\Z")
 
 
 class DockerUnavailable(RuntimeError):
@@ -37,8 +39,8 @@ class DockerConflict(RuntimeError):
 
 
 class _UnixConnection(http.client.HTTPConnection):
-    def __init__(self, socket_path: str) -> None:
-        super().__init__("localhost", timeout=45)
+    def __init__(self, socket_path: str, timeout: int = 45) -> None:
+        super().__init__("localhost", timeout=timeout)
         self.socket_path = socket_path
 
     def connect(self) -> None:
@@ -105,6 +107,13 @@ def _age_seconds(value: Any) -> Optional[float]:
         return None
 
 
+def _cache_id_filter(ids: List[str]) -> str:
+    """Match only reviewed IDs with the one regex value accepted by BuildKit."""
+    if not ids or any(not _CACHE_ID.fullmatch(item_id) for item_id in ids):
+        raise DockerConflict("Build cache has an unsupported ID. Review again.")
+    return "^(?:" + "|".join(item_id.replace(".", r"\.") for item_id in ids) + ")$"
+
+
 class DockerStorage:
     """Normalize Engine disk usage and allow only reviewed object removals."""
 
@@ -117,7 +126,8 @@ class DockerStorage:
         self._version: Optional[str] = None
 
     def _request(self, method: str, path: str) -> Any:
-        conn = _UnixConnection(self._explicit_socket or _socket_path())
+        timeout = 600 if method == "POST" and "/build/prune?" in path else 45
+        conn = _UnixConnection(self._explicit_socket or _socket_path(), timeout=timeout)
         try:
             conn.request(method, path)
             response = conn.getresponse()
@@ -299,6 +309,7 @@ class DockerStorage:
                 raise DockerConflict("No unused build cache matches this age.")
             if len(selected) > 1000 or any(not item["id"] for item in selected) or len({item["id"] for item in selected}) != len(selected):
                 raise DockerConflict("Build cache cannot be safely reviewed as one selection. Choose an older age cutoff.")
+            _cache_id_filter([item["id"] for item in selected])
             return {
                 "kind": kind, "daemon_id": snap["daemon_id"], "items": selected,
                 "ids": sorted(item["id"] for item in selected),
@@ -341,10 +352,16 @@ class DockerStorage:
             # Limit it to the exact reviewed IDs as well, so a new cache record
             # cannot enter the prune set between the second scan and the call.
             age_seconds = math.ceil(datetime.now(timezone.utc).timestamp() - cutoff)
-            filters = json.dumps({"id": preview["ids"], "until": [f"{max(1, age_seconds)}s"]})
-            result = self._api("POST", "/build/prune?" + urlencode({"filters": filters}))
+            filters = json.dumps({"id": [_cache_id_filter(preview["ids"])],
+                                  "until": [f"{max(1, age_seconds)}s"]})
+            result = self._api("POST", "/build/prune?" + urlencode({"all": "1", "filters": filters}))
             self.invalidate()
-            outcome = {"id": "build-cache", "status": "deleted", "reclaimed_bytes": _positive(result.get("SpaceReclaimed"))}
+            reclaimed = _positive(result.get("SpaceReclaimed"))
+            removed = bool(result.get("CachesDeleted")) or reclaimed > 0
+            outcome = {"id": "build-cache", "status": "deleted" if removed else "skipped",
+                       "reclaimed_bytes": reclaimed}
+            if not removed:
+                outcome["error"] = "Docker found no removable cache among the reviewed items."
             if on_outcome:
                 on_outcome(outcome)
             return [outcome]

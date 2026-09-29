@@ -2,6 +2,7 @@
 
 import copy
 import json
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -36,6 +37,7 @@ class FakeDocker(DockerStorage):
                                            "LastUsedAt": old}]},
         }
         self.calls = []
+        self.prune_result = {"CachesDeleted": ["cache-1"], "SpaceReclaimed": 55}
 
     def _request(self, method, path):
         self.calls.append((method, path))
@@ -48,7 +50,10 @@ class FakeDocker(DockerStorage):
         if method == "DELETE":
             return {}
         if method == "POST" and path.startswith("/v1.52/build/prune?"):
-            return {"SpaceReclaimed": 55}
+            filters = json.loads(parse_qs(urlsplit(path).query)["filters"][0])
+            if len(filters.get("id", [])) != 1:
+                raise DockerConflict("filters expect only one value")
+            return copy.deepcopy(self.prune_result)
         raise AssertionError((method, path))
 
 
@@ -121,9 +126,38 @@ def test_build_cache_prune_reports_daemon_reclaimed_bytes():
     outcome = adapter.execute(preview)
     assert outcome == [{"id": "build-cache", "status": "deleted", "reclaimed_bytes": 55}]
     prune = next(path for method, path in adapter.calls if method == "POST")
+    assert parse_qs(urlsplit(prune).query)["all"] == ["1"]
     filters = json.loads(parse_qs(urlsplit(prune).query)["filters"][0])
-    assert filters["id"] == ["cache-1"]
+    assert filters["id"] == ["^(?:cache-1)$"]
     assert filters["until"][0].endswith("s")
+
+
+def test_build_cache_prune_matches_only_multiple_reviewed_ids():
+    adapter = FakeDocker()
+    old = (datetime.now(timezone.utc) - timedelta(days=20)).isoformat()
+    adapter.payload["BuildCacheUsage"]["Items"].extend([
+        {"ID": "cache.2", "Size": 20, "InUse": False, "LastUsedAt": old},
+        {"ID": "cache-1-extra", "Size": 20, "InUse": True, "LastUsedAt": old},
+    ])
+    preview = adapter.preview("cache", [], 7)
+    assert preview["ids"] == ["cache-1", "cache.2"]
+    assert adapter.execute(preview)[0]["status"] == "deleted"
+    prune = next(path for method, path in adapter.calls if method == "POST")
+    filters = json.loads(parse_qs(urlsplit(prune).query)["filters"][0])
+    assert len(filters["id"]) == 1
+    pattern = filters["id"][0]
+    assert all(re.fullmatch(pattern, item_id) for item_id in preview["ids"])
+    assert not re.fullmatch(pattern, "cache-1-extra")
+    assert not re.fullmatch(pattern, "cacheX2")
+    assert not re.fullmatch(pattern, "prefix-cache-1")
+
+
+def test_build_cache_noop_is_not_reported_as_removed():
+    adapter = FakeDocker()
+    adapter.prune_result = {"CachesDeleted": [], "SpaceReclaimed": 0}
+    outcome = adapter.execute(adapter.preview("cache", [], 7))
+    assert outcome == [{"id": "build-cache", "status": "skipped", "reclaimed_bytes": 0,
+                        "error": "Docker found no removable cache among the reviewed items."}]
 
 
 def test_missing_reference_counts_fail_closed_and_changed_item_is_skipped():
@@ -203,6 +237,32 @@ def test_web_action_persists_and_executes_after_delay(tmp_path, monkeypatch):
         assert result["status"] == "completed"
         assert result["outcomes"][0]["status"] == "deleted"
         assert (tmp_path / "actions.log").exists()
+
+
+def test_web_seven_day_cache_cleanup_accepts_multiple_ids(tmp_path, monkeypatch):
+    monkeypatch.setattr("coldshelf.executor.ACTION_LOG_FILE", tmp_path / "actions.log")
+    adapter = FakeDocker()
+    adapter.payload["BuildCacheUsage"]["Items"].append({
+        "ID": "cache-2", "Size": 10, "InUse": False,
+        "LastUsedAt": (datetime.now(timezone.utc) - timedelta(days=20)).isoformat(),
+    })
+    app = create_app(repository=WebRepository(tmp_path / "web.sqlite3"), token="secret",
+                     docker_storage=adapter, docker_action_delay_seconds=0.05)
+    auth = {"Authorization": "Bearer secret"}
+    with TestClient(app) as client:
+        preview = client.post("/api/docker/previews", json={"kind": "cache", "older_than_days": 7}, headers=auth).json()
+        assert preview["confirmation_phrase"] == "REMOVE 2 DOCKER CACHE"
+        action = client.post("/api/docker/actions", json={
+            "preview_id": preview["id"], "confirmation_phrase": preview["confirmation_phrase"],
+        }, headers=auth).json()
+        for _ in range(50):
+            result = client.get(f"/api/docker/actions/{action['id']}", headers=auth).json()
+            if result["status"] in {"completed", "failed"}:
+                break
+            time.sleep(0.05)
+        assert result["status"] == "completed", result.get("error")
+        assert result["outcomes"][0]["reclaimed_bytes"] == 55
+        assert len([call for call in adapter.calls if call[0] == "POST"]) == 1
 
 
 def test_scheduled_web_action_is_interrupted_after_restart(tmp_path, monkeypatch):
