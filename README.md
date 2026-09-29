@@ -138,12 +138,26 @@ Start the packaged FastAPI and React application with one command:
 coldshelf web
 ```
 
-The server binds to `127.0.0.1` by default, prints its authenticated URL, waits
-for Uvicorn to be ready, and opens the dashboard in the default browser. The
+The server binds to `127.0.0.1` by default, waits until it is ready, prints its
+authenticated URL, and opens the dashboard in the default browser. It then
+returns control to the terminal and keeps running in the background. The
 frontend immediately removes the token from the visible URL and keeps it in
 local browser storage until **Disconnect** is selected. The server stores job
 history in `~/.disk-space-manager-web.sqlite3` and serves the built React
 frontend from the Python package.
+
+Only one live Coldshelf web instance can run per user, even with different
+ports, database paths, or modes. To load checkout code changes, run:
+
+```bash
+coldshelf web restart
+```
+
+Restart keeps the running instance's mode, ports, database, token, and browser
+setting. It waits for the replacement backend and, in development mode, Vite
+before returning. Restart refuses while dashboard work is queued, scheduled,
+or running; retry when it is idle. A restart does not print the API token, so
+an existing browser session can continue using its stored credentials.
 
 Useful web server options:
 
@@ -174,10 +188,12 @@ coldshelf web --dev
 Development mode starts FastAPI and the Vite frontend together, using backend
 port `38765` and `--frontend-port 38766` by default. Both remain configurable
 with `--port` and `--frontend-port`. Use `--host 0.0.0.0` only when you
-intentionally want network access, and keep the token private.
+intentionally want network access, and keep the token private. Vite is stopped
+with the detached backend during a restart.
 
-The CLI's `--dry-run` flag is not supported with `web`: it does not make the
-dashboard read-only. Use the dashboard's operation previews and confirmations.
+The CLI's `--dry-run` flag is not supported with `web` or `web restart`: it does
+not make the dashboard read-only. Use the dashboard's operation previews and
+confirmations.
 
 The dashboard opens on **Home**, where a primary-storage summary shows total,
 used, and available space for the filesystem containing the user's home folder.

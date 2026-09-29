@@ -223,12 +223,15 @@ helpers, and archive target path construction.
 
 Contains the optional FastAPI application and built React assets.
 
-- `server.py` exposes `coldshelf web`, prints the tokenized URL, opens
-  it after Uvicorn is ready by default, and can start Vite in `--dev` mode. It
-  owns web command options for host, port, frontend port, SQLite path, token
-  override, and `--open/--no-open`.
+- `server.py` exposes detached `coldshelf web` and `coldshelf web restart`. A
+  private per-user lock, process birth marker, and control socket enforce one
+  verified instance across ports, database paths, and modes. It waits for
+  Uvicorn and Vite readiness, owns their graceful shutdown, and keeps the
+  token out of child process arguments and restart diagnostics. Startup options
+  cover host, ports, SQLite path, token override, and `--open/--no-open`.
 - `app.py` owns FastAPI route declarations, token-protected API dependencies,
-  Server-Sent Events, and static frontend serving.
+  Server-Sent Events, static frontend serving, and a request admission gate
+  used by the restart idle check.
 - `services.py` converts core scan/analyze results into persisted web reports,
   exposes authenticated directory/archive-target discovery, and runs
   clean/archive actions only against stored candidate IDs.
@@ -337,6 +340,12 @@ after a restart. Browse scan/listing state remains bounded and in memory; Browse
 deletion batch/item state is persistent so delayed or interrupted work resumes.
 The report repository stores actionable candidates and summaries, not every
 scanned file.
+The restart gate counts in-flight API requests, including synchronous clean,
+archive, and protected-folder work. Before shutdown it also checks the shared
+queue, in-memory Browse sizing, and persisted report, protection, Browse
+deletion, and Docker cleanup states. Confirmed deletion and cleanup jobs remain
+busy throughout their Undo windows. Admission closes under the same lock as
+the idle decision, so a newly accepted operation cannot be lost during restart.
 
 ## Command Flows
 
@@ -388,20 +397,31 @@ This command is read-only.
 
 ### `coldshelf web`
 
-1. Resolve or create an API token from `--token`,
+1. Lock private per-user instance state and refuse a second live instance
+   before creating repositories or reconciling work.
+2. Resolve or create an API token from `--token`,
    `COLDSHELF_WEB_TOKEN` (with `DISK_SPACE_MANAGER_WEB_TOKEN` as a fallback), or `~/.disk-space-manager-web-token`.
-2. Open the SQLite repository at `--db-path`, defaulting to
+3. Start a detached child with private settings delivered over stdin; open the
+   SQLite repository at `--db-path`, defaulting to
    `~/.disk-space-manager-web.sqlite3`.
-3. In normal mode, create the FastAPI app and serve packaged React assets.
-4. In `--dev` mode, start Vite with backend URL and token environment values,
+4. In normal mode, create the FastAPI app and serve packaged React assets.
+5. In `--dev` mode, start Vite with backend URL and token environment values,
    enable CORS for the Vite origin, and run FastAPI.
-5. Bind FastAPI to `--host` and `--port`, defaulting to
+6. Bind FastAPI to `--host` and `--port`, defaulting to
    `127.0.0.1:38765`. Normal mode serves the API and built frontend from this
    one listener; development mode additionally starts Vite on
    `--frontend-port`, defaulting to `38766`.
-6. Print the correct production or Vite URL and, unless `--no-open` is used,
-   open it after Uvicorn reports readiness. Wildcard bind hosts use
-   `127.0.0.1` in the browser URL.
+7. Wait for Uvicorn and Vite when applicable, then print the authenticated URL,
+   open it unless `--no-open` is set, and return the terminal. Wildcard bind
+   hosts use `127.0.0.1` in the browser URL.
+
+`coldshelf web restart` verifies exactly one same-user instance by control
+socket and process birth marker, asks its admission gate to reserve an idle
+shutdown, then waits for graceful exit before launching a fresh child with the
+saved effective options and token. Busy or ambiguous instances are left alone.
+The replacement reloads repository Python code; persisted history and legacy
+storage identifiers remain in their existing locations. Restart reports the
+plain dashboard URL without printing the token.
 
 The web command does not run a scan by itself. Scans start when the frontend or
 another token-authenticated client posts a report or Browse request.

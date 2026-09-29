@@ -930,6 +930,13 @@ class ProtectionRepository:
             raise KeyError(operation_id)
         return _operation_dict(row)
 
+    def has_active_operations(self) -> bool:
+        with self._read() as conn:
+            return conn.execute(
+                "SELECT 1 FROM protection_operations "
+                "WHERE status IN ('queued', 'running') LIMIT 1"
+            ).fetchone() is not None
+
     def list_operations(self, folder_id: str, limit: int = 50) -> List[Dict[str, Any]]:
         with self._read() as conn:
             rows = conn.execute(

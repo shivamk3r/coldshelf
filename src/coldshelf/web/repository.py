@@ -227,6 +227,20 @@ class WebRepository:
             ).fetchall()
         return [_row_to_job(row) for row in rows]
 
+    def has_active_web_work(self) -> bool:
+        """Check persisted work, including confirmed jobs still in their Undo window."""
+        with self._connect() as conn:
+            for table, statuses in (
+                ("jobs", "'queued', 'running'"),
+                ("browse_deletions", "'scheduled', 'queued', 'running'"),
+                ("docker_actions", "'scheduled', 'queued', 'running'"),
+            ):
+                if conn.execute(
+                    f"SELECT 1 FROM {table} WHERE status IN ({statuses}) LIMIT 1"
+                ).fetchone():
+                    return True
+        return False
+
     def get_job(self, job_id: str) -> Dict[str, Any]:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()

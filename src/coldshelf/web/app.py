@@ -5,11 +5,13 @@ import json
 import platform as platform_module
 from contextlib import asynccontextmanager
 from pathlib import Path
+from threading import RLock
 from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from coldshelf.config import DEFAULT_AGE_THRESHOLD_MONTHS
@@ -87,6 +89,48 @@ from .services import (
 
 
 STATIC_DIR = Path(__file__).with_name("static")
+
+
+class RestartAdmission:
+    """Keep accepted API work and the restart idle decision in one lock."""
+
+    def __init__(self, busy_check: Callable[[], Optional[str]]) -> None:
+        self._lock = RLock()
+        self._active_requests = 0
+        self._draining = False
+        self._busy_check = busy_check
+
+    def enter(self) -> bool:
+        with self._lock:
+            if self._draining:
+                return False
+            self._active_requests += 1
+            return True
+
+    def leave(self) -> None:
+        with self._lock:
+            self._active_requests -= 1
+
+    def prepare(self) -> Optional[str]:
+        with self._lock:
+            if self._draining:
+                return "A restart is already in progress"
+            if self._active_requests:
+                return "A web request is still running"
+            reason = self._busy_check()
+            if reason:
+                return reason
+            self._draining = True
+            return None
+
+    def abort(self) -> None:
+        with self._lock:
+            self._draining = False
+
+    @property
+    def draining(self) -> bool:
+        with self._lock:
+            return self._draining
 
 
 def create_app(
@@ -173,6 +217,34 @@ def create_app(
     app.state.protection_repository = protection_repo
     app.state.protection_service = protection
     app.state.protection_manager = protection_manager
+    app.state.io_queue = io_queue
+    app.state.action_service = action_service
+
+    def busy_reason() -> Optional[str]:
+        if io_queue.has_pending_work():
+            return "Queued or running disk work is present"
+        if browse_manager.has_active_work():
+            return "Browse sizing is queued or running"
+        if repo.has_active_web_work():
+            return "A report, Browse deletion, or Docker cleanup is pending"
+        if protection_repo.has_active_operations():
+            return "A protected-folder operation is queued or running"
+        return None
+
+    restart_gate = RestartAdmission(busy_reason)
+    app.state.restart_gate = restart_gate
+
+    @app.middleware("http")
+    async def admit_web_work(request, call_next):
+        # Event streams are observers and can remain open after their job ends.
+        if not request.url.path.startswith("/api/") or request.url.path.endswith("/events"):
+            return await call_next(request)
+        if not restart_gate.enter():
+            return JSONResponse({"detail": "Web server is restarting"}, status_code=503)
+        try:
+            return await call_next(request)
+        finally:
+            restart_gate.leave()
 
     if dev_origin:
         app.add_middleware(

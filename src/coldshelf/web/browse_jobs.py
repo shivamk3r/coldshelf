@@ -122,6 +122,10 @@ class BrowseJobManager:
             self._jobs.move_to_end(scan_id)
             return copy.deepcopy(job)
 
+    def has_active_work(self) -> bool:
+        with self._lock:
+            return any(job["status"] not in TERMINAL_STATUSES for job in self._jobs.values())
+
     def get_result(self, scan_id: str) -> Dict[str, Any]:
         with self._lock:
             job = self._jobs.get(scan_id)
