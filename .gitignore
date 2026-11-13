@@ -136,6 +136,9 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
+!.env.sample
 .envrc
 .venv
 env/
@@ -143,6 +146,11 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Private local project data and feature history
+/non-llm-zone/
+/.rabbit/
+/.xfeat/
 
 # Frontend dependencies
 frontend/node_modules/
